@@ -69,9 +69,12 @@ def write_demo(path: Path, array: np.ndarray, *, rgb: bool) -> None:
                     + last[:, ::2, 1::2] + last[:, 1::2, 1::2]) / 4
         levels.append(np.rint(down).astype(array.dtype))
     with tifffile.TiffWriter(path, ome=True) as writer:
-        writer.write(levels[0], subifds=len(levels) - 1, metadata=metadata, **options)
-        for level in levels[1:]:
-            writer.write(level, subfiletype=1, **options)
+        writer.write(levels[0], subifds=len(levels) - 1, metadata=metadata,
+                     resolution=(20000, 20000), resolutionunit="CENTIMETER", **options)
+        for index, level in enumerate(levels[1:], 1):
+            density = 20000 / 2**index
+            writer.write(level, subfiletype=1, resolution=(density, density),
+                         resolutionunit="CENTIMETER", **options)
 
 
 @click.command(context_settings={"show_default": True})

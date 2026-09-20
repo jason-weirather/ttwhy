@@ -18,7 +18,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import TextArea
 
 from ..intensity_window import IntensityWindow
-from ..ome_tiff_source import ReadBudgetExceeded
+from ..view_info import ReadBudgetExceeded
 from ..text_image import TextImage
 from ..text_renderer import TextRenderer
 from ..view_session import ViewSamples, ViewSession
@@ -48,10 +48,10 @@ class Viewer:
         viewport: Viewport | None = None,
     ) -> None:
         self.session = session
-        self.selected_channels = session.source.select_channels(channels)
+        self.selected_channels = session._select_channels(channels)
         self.focused_channel = self.selected_channels[0]
-        self.windows = [window] * len(session.source.info.channels)
-        self.renderer = renderer or TextRenderer(invert=session.source.info.is_rgb)
+        self.windows = [window] * len(session.info.channels)
+        self.renderer = renderer or TextRenderer(invert=session.info.is_rgb)
         self.viewport = viewport
         self.frame: TextImage | None = None
         self.samples: ViewSamples | None = None
@@ -187,7 +187,7 @@ class Viewer:
             # Preserve the center and horizontal base pixels per terminal cell.
             width = old.width * columns / previous[0]
             height = width / columns * rows * self.renderer.cell_aspect
-            height /= self.session.source.info.pixel_aspect
+            height /= self.session.info.pixel_aspect
             candidate = Viewport(old.x + (old.width - width) / 2,
                                  old.y + (old.height - height) / 2, width, height)
             self._set_viewport(candidate, limit=True)
@@ -197,7 +197,7 @@ class Viewer:
     def _set_viewport(self, viewport: Viewport, *, limit: bool = False) -> None:
         rows, columns = self.renderer.sample_shape(columns=self.canvas_size[0],
                                                    rows=self.canvas_size[1])
-        viewport = viewport.centered_within(self.session.source.info.shape)
+        viewport = viewport.centered_within(self.session.info.shape)
         for _ in range(128):
             try:
                 self.session.plan(viewport, rows=rows, columns=columns,
@@ -332,8 +332,8 @@ class Viewer:
         self.application.invalidate()
 
     def _title(self) -> str:
-        info = self.session.source.info
-        return (f" ttwhy | {safe_label(info.path.name)} | series {info.series} "
+        info = self.session.info
+        return (f" ttwhy | {safe_label(info.name)} "
                 f"| {'RGB' if info.is_rgb else str(len(info.channels)) + ' channels'}")
 
     def _status(self) -> str:
@@ -341,7 +341,9 @@ class Viewer:
             return " Opening image..."
         view = self.viewport
         level = "?" if self.samples is None else str(self.samples.plan.level.index)
-        size = self.session.source.info.pixel_size
+        if self.samples is not None and self.samples.plan.level.approximate:
+            level += " extent-fit"
+        size = self.session.info.pixel_size
         calibration = "uncalibrated" if size is None else f"{size[0]:g} x {size[1]:g} {size[2]}/px"
         return (f" {'loading' if self.busy else 'ready'} | L{level} | {self.renderer.mode} "
                 f"| x={view.x + view.width / 2:,.0f} y={view.y + view.height / 2:,.0f} "

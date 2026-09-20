@@ -11,7 +11,8 @@ from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from ttwhy import OmeTiffSource, ViewSession
+from omeify import OMETiffReader
+from ttwhy import ViewSession
 from ttwhy.viewer import Viewer
 
 
@@ -42,8 +43,9 @@ async def ready(viewer, task):
 
 @asynccontextmanager
 async def running(path, **options):
-    with OmeTiffSource(path) as source, create_pipe_input() as pipe:
-        viewer = Viewer(ViewSession(source), **options)
+    with (OMETiffReader(path) as source, ViewSession(source) as session,
+          create_pipe_input() as pipe):
+        viewer = Viewer(session, **options)
         output = SizedOutput()
         task = asyncio.create_task(viewer.run(input=pipe, output=output))
         try:
@@ -171,8 +173,8 @@ async def test_sgr_mouse_wheel_drag_and_channel_click(mif):
 
 
 async def test_latest_request_wins_and_pending_reads_are_coalesced(mif, monkeypatch):
-    with OmeTiffSource(mif[0]) as source, create_pipe_input() as pipe:
-        session = ViewSession(source)
+    with (OMETiffReader(mif[0]) as source, ViewSession(source) as session,
+          create_pipe_input() as pipe):
         started, release = threading.Event(), threading.Event()
         original = session.sample
         calls = []
@@ -201,11 +203,12 @@ async def test_latest_request_wins_and_pending_reads_are_coalesced(mif, monkeypa
 
 
 async def test_worker_failure_propagates_and_releases_resources(mif, monkeypatch):
-    with OmeTiffSource(mif[0]) as source, create_pipe_input() as pipe:
+    with (OMETiffReader(mif[0]) as source, ViewSession(source) as session,
+          create_pipe_input() as pipe):
         def broken(*args, **kwargs):
             raise OSError("intentional decode failure")
         monkeypatch.setattr(source, "read_region", broken)
-        viewer = Viewer(ViewSession(source))
+        viewer = Viewer(session)
         with pytest.raises(OSError, match="intentional decode failure"):
             await asyncio.wait_for(viewer.run(input=pipe, output=SizedOutput()), 5)
         assert viewer._executor is None
@@ -214,7 +217,8 @@ async def test_worker_failure_propagates_and_releases_resources(mif, monkeypatch
 
 
 async def test_quit_waits_for_inflight_decode(mif, monkeypatch):
-    with OmeTiffSource(mif[0]) as source, create_pipe_input() as pipe:
+    with (OMETiffReader(mif[0]) as source, ViewSession(source) as session,
+          create_pipe_input() as pipe):
         started, finished = threading.Event(), threading.Event()
         original = source.read_region
         def slow(*args, **kwargs):
@@ -226,7 +230,7 @@ async def test_quit_waits_for_inflight_decode(mif, monkeypatch):
             finally:
                 finished.set()
         monkeypatch.setattr(source, "read_region", slow)
-        viewer = Viewer(ViewSession(source))
+        viewer = Viewer(session)
         task = asyncio.create_task(viewer.run(input=pipe, output=SizedOutput()))
         await eventually(started.is_set, task)
         pipe.send_text("q")

@@ -64,7 +64,7 @@ class ChannelControl(UIControl):
         return True
 
     def create_content(self, width: int, height: int) -> UIContent:
-        viewer, info = self.viewer, self.viewer.session.source.info
+        viewer, info = self.viewer, self.viewer.session.info
         self.visible_channels = max(1, height - 12)
         self.first_channel = min(self.first_channel, viewer.focused_channel)
         self.first_channel = max(self.first_channel,

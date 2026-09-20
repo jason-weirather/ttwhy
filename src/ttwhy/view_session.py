@@ -1,10 +1,14 @@
 """Public planning, sampling, and rendering stages for a borrowed open source."""
 
+from __future__ import annotations
+
 from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import ceil, floor, isfinite
+from numbers import Integral
 from threading import RLock
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
@@ -12,11 +16,14 @@ from numpy.typing import NDArray
 from ._validation import positive_integer
 from .compositing import CHANNEL_COLORS, ChannelStyle, compose_channels
 from .intensity_window import IntensityWindow, estimate_window
-from .ome_tiff_source import OmeTiffSource, PyramidLevel, ReadBudgetExceeded
+from .view_info import PyramidLevel, ReadBudgetExceeded, ViewInfo
 from .resampling import resample_image
 from .text_image import TextImage
 from .text_renderer import TextRenderer
 from .viewport import Viewport
+
+if TYPE_CHECKING:
+    from omeify import Image
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,39 +66,96 @@ class ViewSamples:
 
 
 class ViewSession:
-    """Sample and render viewports while borrowing an open OmeTiffSource.
+    """Bounded display over one borrowed, already-open Omeify image.
 
-    A byte-bounded LRU retains resampled preview intensities. Thus contrast,
-    gamma, density, and color changes can reuse pixels without TIFF I/O. It
-    does not duplicate whole source tiles. Reader access is serialized.
-    Closing the source ends the session's usable lifetime, even for cache hits.
+    Use a context to release preview caches and the session-bound borrowed view.
+    Closing the session never closes its parent image. Closing/reopening the
+    parent invalidates the session, including cached previews. No new image
+    exposure, file, or pyramid is created. Calls within the session are serialized;
+    callers must not concurrently mutate or close the parent.
     """
 
-    def __init__(self, source: OmeTiffSource, *, cache_mib: float = 32.0) -> None:
-        if not source.is_open:
-            raise RuntimeError("ViewSession requires an open OmeTiffSource")
+    def __init__(
+        self, image: Image, *, name: str = "Image", cache_mib: float = 32.0,
+        max_read_pixels: int = 4_194_304,
+    ) -> None:
+        from omeify import Image
+
+        if not isinstance(image, Image):
+            raise TypeError("ViewSession requires an Omeify Image")
+        if not image.is_open:
+            raise RuntimeError("ViewSession requires an open image")
+        if image.image_type == "label":
+            raise ValueError("Categorical label coloring is not supported; do not window object IDs")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("name must be a nonempty display label")
         if not isfinite(cache_mib) or cache_mib < 0:
             raise ValueError("cache_mib must be finite and nonnegative")
-        self.source = source
-        self._source_info = source.info
+        self.max_read_pixels = positive_integer(max_read_pixels, "max_read_pixels")
+        self._info = ViewInfo.from_image(image, name=name)
+        # A public Omeify view pins the original session without private epochs
+        # or zero-pixel reads merely to check lifetime.
+        self._image = image.with_metadata().open()
         self._budget = int(cache_mib * 1024 * 1024)
         self._cache: OrderedDict[ReadPlan, ViewSamples] = OrderedDict()
         self._cache_bytes = 0
+        self._cached_pair: tuple[int, int] | None = None
         self._lock = RLock()
+        self._context_active = False
 
-    def _require_source_open(self) -> None:
-        if not self.source.is_open or self.source.info is not self._source_info:
-            raise RuntimeError("The session's source lifetime has ended; create a new ViewSession")
+    @property
+    def info(self) -> ViewInfo:
+        return self._info
+
+    @property
+    def is_open(self) -> bool:
+        return self._image.is_open
+
+    def _require_image_open(self) -> None:
+        if not self.is_open:
+            raise RuntimeError("The session's image lifetime has ended; create a new ViewSession")
+
+    def _select_channels(self, channels: Sequence[int]) -> tuple[int, ...]:
+        if len(channels) == 0:
+            raise ValueError("Select at least one channel")
+        result = []
+        for index in channels:
+            if isinstance(index, (bool, np.bool_)) or not isinstance(index, Integral):
+                raise TypeError("Channel indices must be integers")
+            if not 0 <= index < len(self.info.channels):
+                raise IndexError(f"Channel {index} is outside 0..{len(self.info.channels) - 1}")
+            if index in result:
+                raise ValueError(f"Channel {index} is selected more than once")
+            result.append(int(index))
+        return tuple(result)
 
     @property
     def cache_bytes(self) -> int:
         return self._cache_bytes
 
     def clear_cache(self) -> None:
-        """Release preview rasters; source decoder caching remains source-owned."""
+        """Release preview rasters, not the caller's image or its decoded cache."""
         with self._lock:
             self._cache.clear()
             self._cache_bytes = 0
+
+    def close(self) -> None:
+        """End this view and release its previews; the parent remains caller-owned."""
+        with self._lock:
+            self.clear_cache()
+            self._image.close()
+            self._cached_pair = None
+
+    def __enter__(self) -> ViewSession:
+        self._require_image_open()
+        if self._context_active:
+            raise RuntimeError("Nested contexts on one ViewSession are not supported")
+        self._context_active = True
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self._context_active = False
+        self.close()
 
     def plan(
         self,
@@ -104,27 +168,27 @@ class ViewSession:
         """Choose a stored pyramid level and reject excessive reads before I/O.
 
         rows/columns describe the sample raster, so half-block renderers request
-        twice the terminal row count. Level extent ratios are for visualization
-        only and do not invent physical calibration for third-party pyramids.
+        twice the terminal row count. Declared sampling scales are authoritative.
+        Unknown-scale levels use labelled approximate extent-fit display mapping.
         """
-        self._require_source_open()
+        self._require_image_open()
         rows, columns = positive_integer(rows, "rows"), positive_integer(columns, "columns")
-        selected = self.source.select_channels(channels)
-        candidates = [level for level in self.source.info.levels
+        selected = self._select_channels(channels)
+        candidates = [level for level in self.info.levels
                       if level.scale_x <= viewport.width / columns
                       and level.scale_y <= viewport.height / rows]
         level = max(candidates, key=lambda x: x.scale_x * x.scale_y,
-                    default=self.source.info.levels[0])
+                    default=self.info.levels[0])
         x0 = min(level.width, max(0, floor(viewport.x / level.scale_x)))
         y0 = min(level.height, max(0, floor(viewport.y / level.scale_y)))
         x1 = min(level.width, max(0, ceil((viewport.x + viewport.width) / level.scale_x)))
         y1 = min(level.height, max(0, ceil((viewport.y + viewport.height) / level.scale_y)))
         count = max(0, x1 - x0) * max(0, y1 - y0) * len(selected)
-        count *= 3 if self.source.info.is_rgb else 1
-        if count > self.source.max_read_pixels:
+        count *= 3 if self.info.is_rgb else 1
+        if count > self.max_read_pixels:
             raise ReadBudgetExceeded(
                 f"Viewport needs {count:,} source samples at level {level.index}; "
-                f"budget is {self.source.max_read_pixels:,}. Zoom in or supply a coarser pyramid."
+                f"budget is {self.max_read_pixels:,}. Zoom in or supply a coarser pyramid."
             )
         return ReadPlan(viewport, level, (y0, y1, x0, x1), selected, (rows, columns), count)
 
@@ -142,9 +206,10 @@ class ViewSession:
         faithful overview. The boolean reports whether the read budget limited
         the fit. No conversion, sparse fake overview, or full-slide scan occurs.
         """
-        viewport = Viewport.fit(self.source.info.shape, columns=columns, rows=rows,
+        self._require_image_open()
+        viewport = Viewport.fit(self.info.shape, columns=columns, rows=rows,
                                cell_aspect=renderer.cell_aspect,
-                               pixel_aspect=self.source.info.pixel_aspect)
+                               pixel_aspect=self.info.pixel_aspect)
         sample_rows, sample_columns = renderer.sample_shape(columns=columns, rows=rows)
         limited = False
         for _ in range(128):
@@ -172,11 +237,16 @@ class ViewSession:
             planes = []
             for channel in plan.channels:
                 if x0 >= x1 or y0 >= y1:
-                    shape = ((rows, columns, 3) if self.source.info.is_rgb else (rows, columns))
+                    shape = ((rows, columns, 3) if self.info.is_rgb else (rows, columns))
                     preview = np.full(shape, np.nan, dtype=np.float64)
                 else:
-                    pixels = self.source.read_region(y0, y1, x0, x1,
-                                                     channel=channel, level=plan.level.index)
+                    pair = (channel, plan.level.index)
+                    if self._cached_pair is not None and pair != self._cached_pair:
+                        self._image.clear_cache()
+                    self._cached_pair = pair
+                    pixels = self._image[channel].read_region(
+                        y0, y1, x0, x1, level=plan.level.index,
+                    )
                     viewport, level = plan.viewport, plan.level
                     preview = resample_image(
                         pixels, rows=rows, columns=columns,
@@ -184,10 +254,14 @@ class ViewSession:
                                 viewport.y / level.scale_y - y0,
                                 viewport.width / level.scale_x,
                                 viewport.height / level.scale_y),
+                        coverage_shape=(
+                            min(y1 - y0, self.info.shape[0] / level.scale_y - y0),
+                            min(x1 - x0, self.info.shape[1] / level.scale_x - x0),
+                        ),
                     )
                 planes.append(preview)
-            values = planes[0] if self.source.info.is_rgb else np.stack(planes)
-            samples = ViewSamples(values, plan, self.source.info.is_rgb)
+            values = planes[0] if self.info.is_rgb else np.stack(planes)
+            samples = ViewSamples(values, plan, self.info.is_rgb)
             size = samples.values.nbytes
             if size <= self._budget:
                 while self._cache and self._cache_bytes + size > self._budget:
@@ -210,7 +284,7 @@ class ViewSession:
         missing field receives a 0..1 display placeholder, not an inferred range.
         The caller may retain returned windows to keep contrast fixed while panning.
         """
-        self._require_source_open()
+        self._require_image_open()
         if windows is not None and len(windows) != len(samples.plan.channels):
             raise ValueError("One window is required for each sampled logical channel")
         styles = []
@@ -218,15 +292,15 @@ class ViewSession:
             window = None if windows is None else windows[position]
             values = samples.values if samples.is_rgb else samples.values[position]
             if window is None:
-                if samples.is_rgb and self.source.info.dtype.kind in "bu":
-                    maximum = (1 if self.source.info.dtype.kind == "b" else
-                               np.iinfo(self.source.info.dtype).max)
+                if samples.is_rgb and self.info.dtype.kind in "bu":
+                    maximum = (1 if self.info.dtype.kind == "b" else
+                               np.iinfo(self.info.dtype).max)
                     window = IntensityWindow(0, float(maximum))
                 elif np.isfinite(values).any():
                     window = estimate_window(values)
                 else:
                     window = IntensityWindow(0, 1)
-            color = ((1.0, 1.0, 1.0) if samples.is_rgb or len(self.source.info.channels) == 1
+            color = ((1.0, 1.0, 1.0) if samples.is_rgb or len(self.info.channels) == 1
                      else CHANNEL_COLORS[index % len(CHANNEL_COLORS)])
             styles.append(ChannelStyle(window, color))
         return tuple(styles)
@@ -246,7 +320,7 @@ class ViewSession:
         RGB samples; its pseudocolor field is not used. Monochrome multi-marker
         output uses the peak composed signal rather than a color-weighted loss.
         """
-        self._require_source_open()
+        self._require_image_open()
         if len(styles) != len(samples.plan.channels):
             raise ValueError("One style is required for each sampled logical channel")
         if samples.is_rgb:
@@ -260,5 +334,5 @@ class ViewSession:
         return renderer.render(normalized, columns=columns, rows=rows)
 
     def __repr__(self) -> str:
-        return (f"ViewSession(source={self.source!r}, "
+        return (f"ViewSession(name={self.info.name!r}, is_open={self.is_open}, "
                 f"preview_cache_mib={self.cache_bytes / 1024**2:.2f})")

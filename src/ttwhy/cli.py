@@ -7,10 +7,10 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import click
+from omeify import OMETiffReader
 
 from . import __version__
 from .intensity_window import IntensityWindow
-from .ome_tiff_source import OmeTiffSource
 from .text_renderer import TextRenderer
 from .view_session import ViewSession
 from .viewport import Viewport
@@ -107,12 +107,15 @@ def main(
                 raise FileNotFoundError(f"Output directory does not exist: {output_path.parent}")
         window = None if lower is None else IntensityWindow(lower, upper)
         viewport = None if region is None else Viewport(*region)
-        with OmeTiffSource(input_path, series=series, max_read_pixels=max_read_pixels) as source:
-            session = ViewSession(source, cache_mib=cache_mib)
-            selected = source.select_channels(channels)
+        with (
+            OMETiffReader(input_path, series=series) as image,
+            ViewSession(image, name=f"{input_path.name} | series {series}",
+                        cache_mib=cache_mib, max_read_pixels=max_read_pixels) as session,
+        ):
+            selected = session._select_channels(channels)
             renderer = TextRenderer(
                 mode=mode, color=(not snapshot or ansi) if color is None else color,
-                invert=source.info.is_rgb if invert is None else invert, cell_aspect=cell_aspect,
+                invert=session.info.is_rgb if invert is None else invert, cell_aspect=cell_aspect,
             )
             if snapshot:
                 if viewport is None:
@@ -126,6 +129,9 @@ def main(
                 sample_rows, sample_columns = renderer.sample_shape(columns=columns, rows=rows)
                 plan = session.plan(viewport, rows=sample_rows, columns=sample_columns,
                                     channels=selected)
+                if plan.level.approximate:
+                    click.echo("Pyramid scale unknown: using approximate extent-fit display mapping.",
+                               err=True)
                 samples = session.sample(plan)
                 styles = session.prepare_styles(samples, windows=[window] * len(selected))
                 frame = session.render(samples, styles=styles, renderer=renderer,

@@ -9,7 +9,8 @@ import tifffile
 
 def write_pyramid(path: Path, data: np.ndarray, *, rgb: bool = False, levels: int = 3,
                   compression: str | None = "deflate", tiled: bool = True,
-                  byteorder: str = "<", pixel_size: tuple[float, float] | None = (0.5, 0.5)):
+                  byteorder: str = "<", pixel_size: tuple[float, float] | None = (0.5, 0.5),
+                  declare_scales: bool = True):
     axes = "YXS" if rgb else "YX" if data.ndim == 2 else "CYX"
     count = 1 if rgb or data.ndim == 2 else data.shape[0]
     names = ["RGB"] if rgb else ["DAPI", "CD3", "panCK", "CD68"][:count]
@@ -25,9 +26,16 @@ def write_pyramid(path: Path, data: np.ndarray, *, rgb: bool = False, levels: in
         last = arrays[-1]
         arrays.append(last[::2, ::2, :] if rgb else last[..., ::2, ::2])
     with tifffile.TiffWriter(path, ome=True, byteorder=byteorder) as writer:
-        writer.write(arrays[0], metadata=metadata, subifds=levels - 1, **options)
-        for array in arrays[1:]:
-            writer.write(array, subfiletype=1, **options)
+        def resolution(scale):
+            if pixel_size is None or not declare_scales:
+                return {}
+            return {"resolution": (10000 / (pixel_size[0] * scale),
+                                   10000 / (pixel_size[1] * scale)),
+                    "resolutionunit": "CENTIMETER"}
+        writer.write(arrays[0], metadata=metadata, subifds=levels - 1,
+                     **resolution(1), **options)
+        for index, array in enumerate(arrays[1:], 1):
+            writer.write(array, subfiletype=1, **resolution(2**index), **options)
     return arrays
 
 

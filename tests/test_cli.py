@@ -96,10 +96,10 @@ def test_crop_and_budget_warning(mif):
 
 
 def test_file_output_preflight_runs_before_decode(mif, tmp_path, monkeypatch):
-    from ttwhy import OmeTiffSource
+    from omeify import OMETiffReader
     def forbidden(*args):
         raise AssertionError("Input should not have been opened")
-    monkeypatch.setattr(OmeTiffSource, "open", forbidden)
+    monkeypatch.setattr(OMETiffReader, "open", forbidden)
     out = tmp_path / "existing.txt"
     out.write_text("untouched")
     result = CliRunner().invoke(main, [str(mif[0]), "--snapshot", "-o", str(out), "--no-overwrite"])

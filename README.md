@@ -14,8 +14,8 @@ checks, not pixel measurements from the rendered text.
 ## Install
 
 Python 3.13 or newer is required. Start in an environment containing a compatible
-Omeify release. The tested reader API is **Omeify 0.16.1**; ttwhy currently requires
-`omeify>=0.16.1,<0.17` and does not vendor its code.
+Omeify release. ttwhy 0.2 uses **Omeify 0.18** and requires
+`omeify>=0.18,<0.19`; it does not vendor its code.
 
 ```bash
 mamba env create -f environment.yml
@@ -161,10 +161,13 @@ and `compose_channels` are independently usable public functions.
 ### Read and render a field of view
 
 ```python
-from ttwhy import OmeTiffSource, TextRenderer, ViewSession
+from omeify import OMETiffReader
+from ttwhy import TextRenderer, ViewSession
 
-with OmeTiffSource("multiplex.ome.tif") as source:
-    session = ViewSession(source, cache_mib=32)
+with (
+    OMETiffReader("multiplex.ome.tif") as image,
+    ViewSession(image, name="Multiplex", cache_mib=32) as session,
+):
     renderer = TextRenderer(mode="ascii", color=True)
     viewport, limited = session.fit(
         columns=120, rows=40, renderer=renderer, channels=[0, 2],
@@ -182,8 +185,11 @@ with OmeTiffSource("multiplex.ome.tif") as source:
 
 A `Viewport(x, y, width, height)` uses **base-image pixel-edge coordinates**.
 `pan()` and `zoom()` return new viewports. A source's `read_region()` instead uses
-coordinates in the requested pyramid level. `ViewSession.plan()` performs this
-mapping explicitly. Physical pixel anisotropy participates in fit geometry;
+coordinates in the requested pyramid level. `ViewSession.plan()` uses declared
+`ImageLevel.downsample_yx` when known, including odd-size edge footprints. For an
+unknown reduced-level scale it retains the former extent-fit display approximation,
+flagged by `plan.level.approximate`, the live status, and snapshot stderr. That
+fallback is for browsing, not exact registration or a physical-calibration estimate. Physical pixel anisotropy participates in fit geometry;
 unknown calibration means square pixels, not an invented microns-per-pixel value.
 
 To change an individual sampled channel's style:
@@ -199,10 +205,44 @@ styles = [
 frame = session.render(samples, styles=styles, renderer=renderer, columns=120, rows=40)
 ```
 
-`ViewSession` borrows the source and becomes unusable when it closes, even for cache
-hits. Independent `ViewSamples` and `TextImage` values remain inspectable afterward.
+`ViewSession` borrows an already-open Omeify Image and owns its display caches.
+Closing the session does not close the image. Closing/reopening the image ends the
+session's usable lifetime, including cache hits. Independent `ViewSamples` and
+`TextImage` values remain inspectable afterward.
 For embedding a frontend, `from ttwhy.viewer import Viewer` provides
 `await Viewer(session).run()`; the caller retains the source context while it runs.
+
+## Image-backed Python use (0.2)
+
+The former ttwhy `OmeTiffSource` class is removed. Omeify owns image origins;
+`ViewSession(image)` owns bounded display. There is one sampling/rendering path,
+not a file path and a separate simulator path. `max_read_pixels=` now belongs to
+the session. The CLI retains its options and controls.
+
+```python
+# With an already rendered Mocktome mIF product:
+from ttwhy import TextRenderer, ViewSession
+
+with mif.as_image() as image, ViewSession(image, name="Mocktome") as session:
+    renderer = TextRenderer(color=False)
+    view, limited = session.fit(columns=100, rows=35, renderer=renderer)
+    rows, columns = renderer.sample_shape(columns=100, rows=35)
+    samples = session.sample(session.plan(view, rows=rows, columns=columns))
+    frame = session.render(samples, styles=session.prepare_styles(samples),
+                           renderer=renderer, columns=100, rows=35)
+    print(frame.to_text())
+```
+
+Mocktome 0.5 supplies `as_image()` for its existing eager outputs. It is not a
+new random exposure per read. Other providers can implement Omeify ImageSource
+without a dependency on Mocktome or ttwhy. There is no TIFF serialization in this
+Python workflow. Sources with one level still obey the same read budget; the
+session does not fabricate a cheap whole-image overview.
+
+A session may be used explicitly with `close()` rather than `with`, but it cannot
+be reopened. On a real terminal, `await Viewer(session).run()` borrows the session;
+it waits for its worker before returning. Notebook text snapshots use `print()`;
+this release does not add a graphical notebook widget.
 
 ## Bounded reads and caching
 
@@ -216,8 +256,9 @@ Raw preview means use float64 so narrow windows on uint32 data survive resamplin
 
 There are two deliberately different caches:
 
-* Omeify's decoded-segment cache, with retention restricted to one active logical
-  channel/pyramid-level pair through its public channel cache controls.
+* The provider-owned cache, evicted through Omeify's public `clear_cache()` when
+  switching channel/level pairs. ttwhy does not create a second raw tile cache or
+  assume one separate decoder cache exists for each Channel.
 * ttwhy's byte-bounded LRU of **raw resampled previews**, 32 MiB by default. Contrast,
   gamma, coloring, and density can reuse these samples without reading TIFF data.
   The current rendered frame and its style runs are retained for cheap terminal repaint.
@@ -242,12 +283,16 @@ source strip or tile can exceed that target. A poorly tiled source can still be 
 
 ## Scope of this initial version
 
-Supports tiled or striped **OME-TIFF**, including stored SubIFD pyramids, grayscale,
-RGB, and planar multi-marker images. One OME series is viewed per application;
+The CLI supports tiled or striped **OME-TIFF**, including stored SubIFD pyramids,
+grayscale, RGB, and planar multi-marker images. Python sessions accept an open
+Omeify intensity or RGB Image, including array and procedural backends. One OME
+series is viewed per CLI application;
 choose another at startup with `--series`. Non-singleton Z/T stacks, label-specific
 categorical coloring, in-app series switching, raw vendor formats, OME-Zarr, remote
 URLs, annotations, segmentation overlays, saved view settings, custom colors in
-the sidebar, and ICC-managed color are not implemented. The reader fails clearly
+the sidebar, and ICC-managed color are not implemented. Explicit categorical LabelImages are rejected rather than assigning continuous
+brightness to arbitrary object IDs. OME-TIFF alone does not declare label semantics;
+CLI users must not interpret numeric label brightness as expression. The reader fails clearly
 on unsupported inputs. Font-dependent density and terminal color approximation
 remain limitations of text rendering.
 

@@ -3,7 +3,7 @@
 ## Public workflow
 
 ```
-OmeTiffSource.info + Viewport
+Omeify Image + Viewport
     -> ViewSession.plan()
     -> ViewSession.sample()
     -> ViewSession.prepare_styles() or explicit ChannelStyle values
@@ -19,16 +19,22 @@ prompt_toolkit.
 
 ## Modules
 
-`ome_tiff_source.py` is the only file boundary. It uses Omeify's public reader,
-logical channels, level metadata, regional reads, and channel cache clearing.
-There is no general image-backend registry and no dependency on Tilework.
+The CLI opens an Omeify `OMETiffReader` and passes it to `ViewSession`.
+`view_info.py` derives display geometry from the public image descriptor.
+`ViewSession` uses a session-bound borrowed Omeify image view, generic channels,
+regional reads, and source cache eviction. It is the same path for a TIFF,
+array, or externally implemented procedural image. There is no ttwhy backend
+registry, TIFF decoder, or dependency on Tilework or Mocktome.
 
 `viewport.py` owns camera geometry. `view_session.py` owns planning, read budgeting,
 preview sampling, preview cache, and orchestration of normalization/rendering.
 `resampling.py` performs separable area integration with sparse overlap matrices.
 Partial edge cells average covered finite pixels only; uncovered cells are NaN.
-Pyramid scale factors are ratios of stored raster extents for display alignment,
-not invented physical calibration or a guarantee about a vendor's resize kernel.
+Known pyramid scale factors come from Omeify ImageLevel.downsample_yx. An
+odd-sized base can truncate the final coarse pixel's support; the resampler clips
+that support at the true image edge. Unknown scale uses explicitly approximate
+extent-fit display mapping. This fallback neither changes image calibration nor
+claims knowledge of a vendor resize kernel.
 
 `intensity_window.py`, `compositing.py`, `text_renderer.py`, and `text_image.py`
 separate raw intensities, normalized RGB, character selection, and serialization.
@@ -44,17 +50,16 @@ a stale generation cannot replace the current request's result.
 
 ## Thread and resource contract
 
-Keep the `OmeTiffSource` context open for the full `Viewer.run()` call. The viewer
+Keep the Omeify image and `ViewSession` contexts open for `Viewer.run()`. The viewer
 waits for an in-flight read on exit; cancellation does not pretend to interrupt a
-native TIFF codec. Source methods serialize reads and close through an RLock.
-A session borrows a stable source: do not change the file while it is open or close
-and reopen the same source underneath an existing session. A new source session
-requires a new ViewSession, whose preview cache belongs to that file lifetime.
+native TIFF codec. Session methods serialize reads and session close through an RLock.
+A session borrows a stable image: do not mutate its pixels or concurrently close
+it. A new image lifetime requires a new ViewSession, whose preview cache belongs
+to the original observation. Closing the display does not close the caller's image.
 A session rejects access after its source is closed and reopened, including cache hits.
 
-Only one source channel/level decoder cache remains active. This deliberately
-trades cross-channel decoded-tile reuse for bounded cache multiplicity in Omeify
-0.16.1. ttwhy's own preview LRU can retain multiple selections and viewports.
+The provider's cache is cleared on channel/level switches. No independent channel
+cache is assumed in Omeify 0.18; providers own their cache implementation. ttwhy's own preview LRU can retain multiple selections and viewports.
 Changing intensity windows does not change preview-cache keys.
 
 There is no on-disk cache or implicitly written user configuration. Errors do not

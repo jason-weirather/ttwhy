@@ -1,308 +1,228 @@
-"""Real Omeify integration; source reads are never replaced by a fake backend."""
+"""Current Image -> plan -> sample -> render contract, using real Omeify sources."""
 
 from dataclasses import replace
 
 import numpy as np
 import pytest
 import tifffile
-from omeify import OMETiffReader
+from omeify import ImageLevel, ImageMetadata, ImageSource, LabelImage, MultichannelImage
+from omeify import OMETiffReader, PixelSize, RGBImage
 
 from conftest import write_pyramid
-from ttwhy import (ChannelStyle, IntensityWindow, OmeTiffSource, ReadBudgetExceeded,
-                   TextRenderer, Viewport, ViewSession, resample_image)
+from ttwhy import ChannelStyle, IntensityWindow, ReadBudgetExceeded, TextRenderer
+from ttwhy import Viewport, ViewSession, resample_image
 
 
-@pytest.mark.parametrize("channel", [0, 1, 2])
-@pytest.mark.parametrize("level", [0, 1, 2])
-def test_real_compressed_mif_regions(mif, channel, level):
-    path, arrays = mif
-    with OmeTiffSource(str(path)) as source:
-        expected = arrays[level][channel, 2:13, 3:17]
-        actual = source.read_region(2, 13, 3, 17, channel=channel, level=level)
-        np.testing.assert_array_equal(actual, expected)
-        assert source.info.channels == ("DAPI", "CD3", "panCK")
-        assert source.info.pixel_size == (.5, .5, "µm")
-        assert len(source.info.levels) == 3
-        assert source.info.levels[2].scale_x == 97 / 25
-        assert "open=True" in repr(source)
-    assert not source.is_open
-    assert source.info.shape == (65, 97)
-    with pytest.raises(RuntimeError, match="closed"):
-        source.read_region(0, 1, 0, 1)
-    source.close()
+@pytest.mark.parametrize("fixture_name", ["mif", "rgb"])
+def test_file_and_array_share_the_render_path(request, fixture_name):
+    path, arrays = request.getfixturevalue(fixture_name)
+    with OMETiffReader(path) as file_image:
+        if fixture_name == "rgb":
+            array_image = RGBImage.from_array(
+                arrays[0], pixel_size=file_image.pixel_size,
+                level_arrays=arrays[1:], levels=file_image.levels,
+            )
+        else:
+            array_image = MultichannelImage.from_array(
+                arrays[0], axes="CYX", channel_names=file_image.channel_names,
+                pixel_size=file_image.pixel_size,
+                level_arrays=arrays[1:], levels=file_image.levels,
+            )
+        with (array_image, ViewSession(file_image) as file_view,
+              ViewSession(array_image) as array_view):
+            renderer = TextRenderer(color=True)
+            view, limited = file_view.fit(columns=25, rows=11, renderer=renderer)
+            assert not limited
+            plans = [s.plan(view, columns=25, rows=11) for s in (file_view, array_view)]
+            samples = [s.sample(plan) for s, plan in zip((file_view, array_view), plans)]
+            np.testing.assert_array_equal(samples[0].values, samples[1].values)
+            frames = [s.render(v, styles=s.prepare_styles(v), renderer=renderer,
+                               columns=25, rows=11)
+                      for s, v in zip((file_view, array_view), samples)]
+            assert frames[0].to_text(ansi=True) == frames[1].to_text(ansi=True)
+            assert all(not p.level.approximate for p in plans)
+        assert file_image.is_open
 
 
-@pytest.mark.parametrize("level", [0, 1, 2])
-def test_real_rgb_kept_as_one_logical_channel(rgb, level):
-    path, arrays = rgb
-    with OmeTiffSource(path) as source:
-        assert source.info.is_rgb
-        assert len(source.info.channels) == 1
-        np.testing.assert_array_equal(source.read_region(1, 11, 2, 16, level=level),
-                                      arrays[level][1:11, 2:16])
-        with pytest.raises(IndexError):
-            source.select_channels([1])
+@pytest.mark.parametrize("dtype,tiled,byteorder", [
+    (np.uint16, True, ">"), (np.int16, False, "<"),
+    (np.float32, True, "<"), (np.float64, False, ">"),
+])
+def test_native_dtype_storage_and_raw_values(tmp_path, dtype, tiled, byteorder):
+    data = np.arange(19 * 23).reshape(19, 23).astype(dtype) - 100
+    path = tmp_path / "values.ome.tif"
+    write_pyramid(path, data, levels=1, tiled=tiled, byteorder=byteorder, pixel_size=None)
+    with OMETiffReader(path) as image, ViewSession(image) as session:
+        samples = session.sample(session.plan(Viewport(2, 3, 10, 9), columns=10, rows=9))
+        np.testing.assert_array_equal(samples.values[0], data[3:12, 2:12])
+        assert session.info.pixel_size is None and session.info.pixel_aspect == 1
 
 
-@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.int16, np.float32, np.float64])
-@pytest.mark.parametrize("tiled,compression,byteorder", [(True, None, ">"),
-                                                        (False, "deflate", "<")])
-def test_storage_and_dtype_variants(tmp_path, dtype, tiled, compression, byteorder):
-    data = np.arange(32 * 47).reshape(32, 47).astype(dtype)
-    path = tmp_path / "variant.ome.tif"
-    write_pyramid(path, data, levels=1, tiled=tiled, compression=compression,
-                  byteorder=byteorder, pixel_size=None)
-    with OmeTiffSource(path) as source:
-        np.testing.assert_array_equal(source.read_region(3, 27, 5, 41), data[3:27, 5:41])
-        assert source.info.pixel_size is None
-        assert source.info.pixel_aspect == 1
-        assert not source.info.is_rgb
-
-
-def test_real_rgb16(tmp_path):
-    data = np.full((19, 29, 3), [1000, 32000, 65000], np.uint16)
-    path = tmp_path / "rgb16.ome.tif"
-    write_pyramid(path, data, rgb=True, levels=1)
-    with OmeTiffSource(path) as source:
-        session = ViewSession(source)
+def test_raw_uint32_precision_and_rgb_logical_channel():
+    raw = np.arange(100, dtype=np.uint32).reshape(10, 10) + 2**31
+    with MultichannelImage.from_array(raw, axes="YX") as image, ViewSession(image) as session:
+        samples = session.sample(session.plan(Viewport(0, 0, 10, 10), rows=10, columns=10))
+        np.testing.assert_array_equal(samples.values[0], raw)
+        frame = session.render(samples, styles=[ChannelStyle(IntensityWindow(2**31, 2**31+99))],
+                               renderer=TextRenderer(color=False), rows=10, columns=10)
+        assert len(set(frame.to_text())) > 5
+    rgb = np.full((19, 29, 3), [1000, 32000, 65000], np.uint16)
+    with RGBImage.from_array(rgb) as image, ViewSession(image) as session:
         samples = session.sample(session.plan(Viewport(0, 0, 29, 19), columns=29, rows=19))
+        assert samples.is_rgb and len(session.info.channels) == 1
         styles = session.prepare_styles(samples)
         assert styles[0].window == IntensityWindow(0, 65535)
-        frame = session.render(samples, styles=styles, renderer=TextRenderer(mode="blocks"),
-                               columns=29, rows=10)
-        assert frame.shape == (10, 29)
-        assert frame.foreground[0, 0, 2] == 253
+        with pytest.raises(IndexError):
+            session.plan(Viewport(0, 0, 1, 1), rows=1, columns=1, channels=[1])
 
 
-def test_metadata_and_region_never_call_full_array(mif, monkeypatch):
+def test_metadata_and_region_never_materialize_whole_image(mif, monkeypatch):
     def prohibited(*args, **kwargs):
-        raise AssertionError("Full-image materialization is forbidden")
+        raise AssertionError("Whole-image materialization is forbidden")
     monkeypatch.setattr(tifffile.TiffPage, "asarray", prohibited)
     monkeypatch.setattr(tifffile.TiffPageSeries, "asarray", prohibited)
-    monkeypatch.setattr(OMETiffReader, "asarray", prohibited, raising=False)
-    with OmeTiffSource(mif[0]) as source:
-        session = ViewSession(source)
-        view, limited = session.fit(columns=24, rows=12, renderer=TextRenderer())
-        samples = session.sample(session.plan(view, columns=24, rows=12))
-        frame = session.render(samples, styles=session.prepare_styles(samples),
-                               renderer=TextRenderer(), columns=24, rows=12)
-        assert not limited and frame.shape == (12, 24)
+    monkeypatch.setattr(OMETiffReader, "asarray", prohibited)
+    with OMETiffReader(mif[0]) as image, ViewSession(image) as session:
+        viewport, limited = session.fit(columns=24, rows=12, renderer=TextRenderer())
+        samples = session.sample(session.plan(viewport, columns=24, rows=12))
+        assert not limited and np.isfinite(samples.values).any()
 
 
-def test_cache_reuse_no_extra_io_for_contrast(mif, monkeypatch):
-    with OmeTiffSource(mif[0]) as source:
+def test_contrast_cache_lru_and_borrowed_lifetime(mif, monkeypatch):
+    with OMETiffReader(mif[0]) as image, ViewSession(image, cache_mib=800/1024**2) as session:
         calls = []
-        original = source.read_region
+        original = image.read_region
         def record(*args, **kwargs):
             calls.append((args, kwargs))
             return original(*args, **kwargs)
-        monkeypatch.setattr(source, "read_region", record)
-        session = ViewSession(source)
-        plan = session.plan(Viewport(0, 0, 97, 65), rows=20, columns=32, channels=[0, 2])
+        monkeypatch.setattr(image, "read_region", record)
+        plan = session.plan(Viewport(0, 0, 40, 40), rows=10, columns=10)
         samples = session.sample(plan)
-        assert len(calls) == 2
-        assert session.sample(plan) is samples
+        assert len(calls) == 1 and session.sample(plan) is samples
         styles = session.prepare_styles(samples)
-        frame1 = session.render(samples, styles=styles, renderer=TextRenderer(),
-                                columns=32, rows=20)
-        adjusted = [ChannelStyle(IntensityWindow(0, 50000), style.color) for style in styles]
-        frame2 = session.render(samples, styles=adjusted, renderer=TextRenderer(),
-                                columns=32, rows=20)
-        assert frame1.to_text() != frame2.to_text()
-        assert len(calls) == 2
-        assert session.cache_bytes == samples.values.nbytes
-        session.clear_cache()
-        assert session.cache_bytes == 0
-        assert not np.shares_memory(samples.values, mif[1][0])
-        with pytest.raises(ValueError):
-            samples.values[:] = 0
-        source.close()
-        with pytest.raises(RuntimeError):
+        renderer = TextRenderer(color=False)
+        first = session.render(samples, styles=styles, renderer=renderer, columns=10, rows=10)
+        second = session.render(samples, styles=[ChannelStyle(IntensityWindow(0, 50000))],
+                                renderer=renderer, columns=10, rows=10)
+        assert first.to_text() != second.to_text() and len(calls) == 1
+        next_plan = session.plan(Viewport(5, 0, 40, 40), rows=10, columns=10)
+        session.sample(next_plan)
+        assert session.cache_bytes == 800 and session.sample(plan) is not samples
+        image.close()
+        image.open()
+        with pytest.raises(RuntimeError, match="lifetime"):
             session.sample(plan)
+        with ViewSession(image) as fresh:
+            fresh.sample(fresh.plan(Viewport(0, 0, 10, 10), rows=10, columns=10))
+        assert image.is_open
+    assert session.cache_bytes == 0 and not session.is_open
+    assert samples.values.shape == (1, 10, 10) and not samples.values.flags.writeable
 
 
-def test_preview_lru_and_disabled_cache(mif):
-    with OmeTiffSource(mif[0]) as source:
-        session = ViewSession(source, cache_mib=800 / 1024**2)
-        plans = [session.plan(Viewport(x, 0, 40, 40), rows=10, columns=10) for x in (0, 5, 10)]
-        first = session.sample(plans[0])
-        session.sample(plans[1])
-        assert session.cache_bytes == 800
-        assert session.sample(plans[0]) is not first
-        disabled = ViewSession(source, cache_mib=0)
-        assert disabled.sample(plans[2]) is not disabled.sample(plans[2])
-        assert disabled.cache_bytes == 0
+class Coordinates(ImageSource):
+    def __init__(self):
+        super().__init__(ImageMetadata(axes="CYX", shape=(2, 100_000, 120_000),
+                                      dtype=np.dtype("float32"), channel_names=("A", "B")))
+        self.requests = []
+    def _read_region(self, y0, y1, x0, x1, *, level, channels):
+        self.requests.append((y0, y1, x0, x1, channels))
+        y, x = np.ogrid[y0:y1, x0:x1]
+        return np.stack([x + y * 2 + i * 100 for i in channels]).astype(np.float32)
 
 
-def test_source_budget_checked_before_read(mif, monkeypatch):
-    with OmeTiffSource(mif[0], max_read_pixels=100) as source:
-        def prohibited(*args, **kwargs):
+def test_large_procedural_source_is_bounded_and_channel_aware():
+    provider = Coordinates()
+    with MultichannelImage(provider) as image, ViewSession(image, max_read_pixels=1024) as session:
+        assert not provider.requests
+        viewport = Viewport(50_000, 20_000, 16, 16)
+        plan = session.plan(viewport, rows=16, columns=16, channels=[1, 0])
+        values = session.sample(plan).values
+        y, x = np.ogrid[20_000:20_016, 50_000:50_016]
+        np.testing.assert_array_equal(values[0], x + y * 2 + 100)
+        assert len(provider.requests) == 2
+        with pytest.raises(ReadBudgetExceeded):
+            session.plan(Viewport(0, 0, 1000, 1000), rows=10, columns=10)
+        assert len(provider.requests) == 2
+        _, limited = session.fit(rows=10, columns=20, renderer=TextRenderer())
+        assert limited and len(provider.requests) == 2
+
+
+def test_rgb_read_budget_counts_all_samples(rgb, monkeypatch):
+    with OMETiffReader(rgb[0]) as image, ViewSession(image, max_read_pixels=299) as session:
+        def forbidden(*args, **kwargs):
             raise AssertionError("Read must not start")
-        monkeypatch.setattr(source._reader[0], "read_region", prohibited)
+        monkeypatch.setattr(image, "read_region", forbidden)
         with pytest.raises(ReadBudgetExceeded):
-            source.read_region(0, 11, 0, 11)
-        session = ViewSession(source)
-        with pytest.raises(ReadBudgetExceeded):
-            session.plan(Viewport(0, 0, 97, 65), rows=65, columns=97)
-        view, limited = session.fit(columns=80, rows=24, renderer=TextRenderer())
-        assert limited
-        plan = session.plan(view, rows=24, columns=80)
-        assert plan.source_samples <= 100
+            session.plan(Viewport(0, 0, 10, 10), rows=10, columns=10)
 
 
-def test_rgb_sample_budget_counts_three(rgb):
-    with OmeTiffSource(rgb[0], max_read_pixels=299) as source:
-        with pytest.raises(ReadBudgetExceeded):
-            source.read_region(0, 10, 0, 10)
-
-
-def test_plan_forgery_and_blank_letterbox(mif):
-    with OmeTiffSource(mif[0]) as source:
-        session = ViewSession(source)
-        plan = session.plan(Viewport(-50, -50, 100, 100), rows=10, columns=10)
-        with pytest.raises(ValueError, match="ReadPlan"):
-            session.sample(replace(plan, source_samples=0))
-        samples = session.sample(plan)
-        assert np.isnan(samples.values[0, :5]).all()
-        outside = session.sample(session.plan(Viewport(-100, -100, 20, 20), rows=4, columns=4))
-        assert np.isnan(outside.values).all()
-        frame = session.render(outside, styles=session.prepare_styles(outside),
-                               renderer=TextRenderer(invert=True), columns=4, rows=4)
-        assert set(frame.to_text()) == {" ", "\n"}
-
-
-def test_fractional_viewport_matches_direct_array(mif):
-    with OmeTiffSource(mif[0]) as source:
-        session = ViewSession(source)
+def test_fractional_viewport_and_letterbox(mif):
+    with OMETiffReader(mif[0]) as image, ViewSession(image) as session:
         viewport = Viewport(4.2, 2.3, 23.6, 27.5)
-        plan = session.plan(viewport, rows=40, columns=40, channels=(1,))
-        assert plan.level.index == 0
-        actual = session.sample(plan).values[0]
+        plan = session.plan(viewport, rows=40, columns=40, channels=[1])
         reference = resample_image(mif[1][0][1], rows=40, columns=40,
                                    bounds=(4.2, 2.3, 23.6, 27.5))
-        np.testing.assert_allclose(actual, reference, atol=1e-3)
+        np.testing.assert_allclose(session.sample(plan).values[0], reference, rtol=1e-12)
+        with pytest.raises(ValueError, match="ReadPlan"):
+            session.sample(replace(plan, source_samples=0))
+        outside = session.sample(session.plan(Viewport(-100, -100, 20, 20), rows=4, columns=4))
+        assert np.isnan(outside.values).all()
+
+
+def test_declared_scales_do_not_use_rounded_extent_ratios():
+    raw = np.arange(5 * 7).reshape(5, 7).astype(np.float32)
+    size = PixelSize(.5, 1, "µm")
+    levels = (ImageLevel(0, "YX", raw.shape, size),
+              ImageLevel(1, "YX", (3, 4), size.scaled(2), (2, 2)))
+    with (MultichannelImage.from_array(raw, axes="YX", pixel_size=size,
+                                      level_arrays=[raw[::2, ::2]], levels=levels) as image,
+          ViewSession(image) as session):
+        assert session.info.pixel_aspect == 2
+        plan = session.plan(Viewport(0, 0, 8, 6), rows=2, columns=2)
+        assert plan.level.scale_x == 2 and not plan.level.approximate
+        # Pixel value 4 covers base x=[4,6), while value 6 covers only x=[6,7).
+        last = session.sample(plan).values[0, -1, -1]
+        coarse = raw[::2, ::2]
+        expected = (coarse[1, 2] * 2 + coarse[1, 3]
+                    + coarse[2, 2] * 2 + coarse[2, 3]) / 6
+        assert last == pytest.approx(expected)
+        fully_outside = session.sample(session.plan(Viewport(7, 0, 2, 6), rows=3, columns=1))
+        assert np.isnan(fully_outside.values).all()
+
+
+def test_unknown_level_scale_is_explicit_display_approximation(tmp_path):
+    path = tmp_path / "unknown-scale.ome.tif"
+    write_pyramid(path, np.ones((65, 97), np.uint16), declare_scales=False)
+    with OMETiffReader(path) as image, ViewSession(image) as session:
+        assert image.levels[2].downsample_yx is None
+        assert session.info.levels[2].approximate
+        assert session.info.levels[2].scale_x == 97 / 25
+        assert session.info.pixel_size == (.5, .5, "µm")
 
 
 @pytest.mark.parametrize("selection,error", [([], ValueError), ([0, 0], ValueError),
-                                             ([3], IndexError), ([-1], IndexError),
-                                             ([True], TypeError), ([.1], TypeError)])
-def test_channel_validation(mif, selection, error):
-    with OmeTiffSource(mif[0]) as source, pytest.raises(error):
-        source.select_channels(selection)
+                                             ([True], TypeError), ([1.2], TypeError),
+                                             ([99], IndexError)])
+def test_invalid_display_selection(mif, selection, error):
+    with OMETiffReader(mif[0]) as image, ViewSession(image) as session, pytest.raises(error):
+        session.plan(Viewport(0, 0, 10, 10), rows=10, columns=10, channels=selection)
 
 
-@pytest.mark.parametrize("bounds", [(-1, 2, 0, 2), (0, 0, 0, 2), (0, 200, 0, 2),
-                                   (0, 2, .1, 2)])
-def test_invalid_region(mif, bounds):
-    with OmeTiffSource(mif[0]) as source, pytest.raises((ValueError, TypeError)):
-        source.read_region(*bounds)
-
-
-def test_bad_files_and_series_close_cleanly(tmp_path, mif):
-    missing = OmeTiffSource(tmp_path / "missing.tif")
-    with pytest.raises((OSError, ValueError)):
-        missing.open()
-    assert not missing.is_open
-    bad = tmp_path / "bad.tif"
-    bad.write_bytes(b"not a TIFF")
-    with pytest.raises((OSError, ValueError)):
-        OmeTiffSource(bad).open()
-    source = OmeTiffSource(mif[0], series=99)
-    with pytest.raises((IndexError, ValueError)):
-        source.open()
-    assert not source.is_open
-    with pytest.raises(RuntimeError):
-        ViewSession(missing)
-
-
-def test_multiseries_and_non_singleton_z(tmp_path):
-    path = tmp_path / "series.ome.tif"
-    with tifffile.TiffWriter(path, ome=True) as writer:
-        writer.write(np.ones((32, 32), np.uint16), metadata={"axes": "YX"}, tile=(16, 16))
-        writer.write(np.full((17, 21, 3), 234, np.uint8), metadata={"axes": "YXS"},
-                     photometric="rgb", tile=(16, 16))
-    with OmeTiffSource(path, series=1) as source:
-        assert source.info.series_count == 2
-        assert source.info.is_rgb and source.info.shape == (17, 21)
-        assert source.read_region(0, 1, 0, 1)[0, 0, 0] == 234
-    zpath = tmp_path / "z.ome.tif"
-    tifffile.imwrite(zpath, np.ones((2, 21, 32), np.uint16), metadata={"axes": "ZYX"},
-                     photometric="minisblack", ome=True)
-    with pytest.raises(NotImplementedError, match="singleton Z/T"):
-        OmeTiffSource(zpath).open()
-
-
-def test_decoder_failure_is_not_swallowed(mif, monkeypatch):
-    with OmeTiffSource(mif[0]) as source:
+def test_failure_does_not_cache_partial_results(mif, monkeypatch):
+    with OMETiffReader(mif[0]) as image, ViewSession(image) as session:
         def fail(*args, **kwargs):
-            raise OSError("fixture decode failed")
-        monkeypatch.setattr(source._reader[0], "read_region", fail)
-        session = ViewSession(source)
-        with pytest.raises(OSError, match="fixture decode failed"):
-            session.sample(session.plan(Viewport(0, 0, 10, 10), columns=10, rows=10))
+            raise OSError("intentional read failure")
+        monkeypatch.setattr(image, "read_region", fail)
+        with pytest.raises(OSError, match="intentional"):
+            session.sample(session.plan(Viewport(0, 0, 10, 10), rows=10, columns=10))
         assert session.cache_bytes == 0
 
 
-def test_uint32_window_precision_survives_the_entire_file_pipeline(tmp_path):
-    data = np.tile(np.array([2**32 - 3, 2**32 - 2, 2**32 - 1], np.uint32), (16, 1))
-    path = tmp_path / "uint32.ome.tif"
-    write_pyramid(path, data, levels=1)
-    with OmeTiffSource(path) as source:
-        session = ViewSession(source)
-        sample = session.sample(session.plan(Viewport(0, 0, 3, 16), rows=1, columns=3))
-        np.testing.assert_array_equal(sample.values[0, 0], data[0])
-        frame = session.render(sample, styles=[ChannelStyle(IntensityWindow(2**32 - 3, 2**32 - 1))],
-                               renderer=TextRenderer(color=False, ramp=" .@"), rows=1, columns=3)
-        assert frame.to_text() == " .@"
-
-
-def test_ordinary_tiff_rejected_without_implicit_conversion(tmp_path):
-    path = tmp_path / "not-ome.tif"
-    tifffile.imwrite(path, np.ones((10, 10), np.uint8), metadata=None)
-    before = path.read_bytes()
-    with pytest.raises(ValueError, match="OME metadata"):
-        OmeTiffSource(path).open()
-    assert path.read_bytes() == before
-
-
-def test_active_decoder_pair_eviction_is_public_and_bounded(mif, monkeypatch):
-    from omeify.io.channel import Channel
-    cleared = []
-    original = Channel.clear_cache
-    def track(self):
-        cleared.append(self)
-        return original(self)
-    monkeypatch.setattr(Channel, "clear_cache", track)
-    with OmeTiffSource(mif[0]) as source:
-        source.read_region(0, 2, 0, 2, channel=0)
-        source.read_region(2, 4, 0, 2, channel=0)
-        assert not cleared
-        source.read_region(0, 2, 0, 2, channel=1)
-        assert len(cleared) == 1
-        source.read_region(0, 2, 0, 2, channel=1, level=1)
-        assert len(cleared) == 2
-        source.clear_cache()
-        assert len(cleared) == 5
-
-
-def test_anisotropic_physical_geometry(tmp_path):
-    path = tmp_path / "anisotropic.ome.tif"
-    write_pyramid(path, np.ones((40, 60), np.uint16), levels=1, pixel_size=(.5, 1.0))
-    with OmeTiffSource(path) as source:
-        assert source.info.pixel_aspect == 2
-        view, limited = ViewSession(source).fit(columns=60, rows=40, renderer=TextRenderer())
-        assert not limited
-        assert view == Viewport(0, 0, 60, 40)
-
-
-def test_session_lifetime_does_not_resurrect_on_source_reopen(mif):
-    with OmeTiffSource(mif[0]) as source:
-        session = ViewSession(source)
-        plan = session.plan(Viewport(0, 0, 10, 10), columns=10, rows=10)
-        session.sample(plan)
-        source.close()
-        source.open()
-        with pytest.raises(RuntimeError, match="lifetime"):
-            session.sample(plan)
-        fresh = ViewSession(source)
-        assert fresh.sample(fresh.plan(Viewport(0, 0, 10, 10), columns=10, rows=10)).values.size
+def test_no_silent_categorical_or_closed_image_reinterpretation():
+    image = RGBImage.from_array(np.zeros((10, 10, 3), np.uint8))
+    with pytest.raises(RuntimeError, match="open"):
+        ViewSession(image)
+    with LabelImage.from_array(np.zeros((10, 10), np.uint32)) as labels:
+        with pytest.raises(ValueError, match="Categorical"):
+            ViewSession(labels)
+        assert labels.is_open
