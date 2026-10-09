@@ -24,7 +24,7 @@ from ..text_renderer import DEFAULT_RAMP, RENDER_MODES, TEXT_MODES, TextRenderer
 from ..view_session import ViewSamples, ViewSession
 from ..viewport import Viewport
 from .bindings import create_bindings
-from .controls import CanvasControl, ChannelControl, safe_label
+from .controls import CanvasControl, ChannelControl, navigation_fragments, safe_label
 from .rendering import FrameRequest, make_frame
 
 
@@ -46,8 +46,10 @@ class Viewer:
         window: IntensityWindow | None = None,
         renderer: TextRenderer | None = None,
         viewport: Viewport | None = None,
+        navigation=None,
     ) -> None:
         self.session = session
+        self.navigation = navigation
         self.selected_channels = session._select_channels(channels)
         self.focused_channel = self.selected_channels[0]
         self.windows = [window] * len(session.info.channels)
@@ -79,6 +81,9 @@ class Viewer:
         )
 
     def _entry_prompt(self) -> str:
+        if self.editing == "destination" and self.navigation is not None:
+            doc = self.navigation.document
+            return f" Go to {doc.label} ({doc.first_index}..{doc.last_index}; Enter / Esc): "
         units = "unitless" if self.editing == "gamma" else "raw units"
         return f" {self.editing or ''} ({units}; Enter / Esc): "
 
@@ -97,6 +102,11 @@ class Viewer:
         body = VSplit([Window(self.canvas, style="class:image", always_hide_cursor=True), panel])
         container = HSplit([
             Window(FormattedTextControl(self._title), height=1, style="class:title"),
+            ConditionalContainer(
+                Window(FormattedTextControl(lambda: navigation_fragments(self)),
+                       height=1, style="class:status"),
+                filter=Condition(lambda: self.navigation is not None),
+            ),
             body,
             Window(FormattedTextControl(self._status), height=1, style="class:status"),
             ConditionalContainer(self.entry, filter=Condition(lambda: self.editing is not None)),
@@ -123,6 +133,8 @@ class Viewer:
         self._wake = asyncio.Event()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ttwhy-render")
         self.application = self._build_application(input, output)
+        if self.navigation is not None:
+            self.navigation.start(self)
         try:
             await self.application.run_async(
                 pre_run=lambda: self.application.create_background_task(self._pump())
@@ -130,15 +142,24 @@ class Viewer:
         finally:
             # Worker cancellation does not interrupt a TIFF codec. Join before
             # allowing the caller to leave its source context manager.
-            self._executor.shutdown(wait=True, cancel_futures=True)
-            self._executor = None
-            self._pending = None
-            self.session.clear_cache()
+            try:
+                if self.navigation is not None:
+                    await self.navigation.stop()
+            finally:
+                self._executor.shutdown(wait=True, cancel_futures=True)
+                self._executor = None
+                self._pending = None
+                if self.navigation is not None:
+                    self.navigation.close()
+                else:
+                    self.session.clear_cache()
 
     async def _pump(self) -> None:
         while True:
             await self._wake.wait()
             self._wake.clear()
+            if self.navigation is not None:
+                self.navigation.install_pending()
             request, self._pending = self._pending, None
             if request is None:
                 continue
@@ -164,6 +185,8 @@ class Viewer:
                     self.windows[channel] = result.windows[position]
             self.busy = False
             self.application.invalidate()
+            if self.navigation is not None:
+                self.navigation.frame_displayed()
 
     def request_frame(self) -> None:
         if self.viewport is None or not all(self.canvas_size) or self._wake is None:
@@ -270,6 +293,8 @@ class Viewer:
         self._set_viewport(self.viewport, limit=True)
 
     def change_renderer(self, **changes) -> None:
+        if "invert" in changes and self.navigation is not None:
+            self.navigation.auto_invert = False
         options = {"mode": self.renderer.mode, "color": self.renderer.color,
                    "invert": self.renderer.invert, "ramp": self.renderer.ramp,
                    "cell_aspect": self.renderer.cell_aspect}
@@ -338,7 +363,35 @@ class Viewer:
         self.application.layout.focus(self.entry)
         self.application.invalidate()
 
+    def begin_destination(self) -> None:
+        if self.navigation is None:
+            self.message = "Page/series navigation is available for PDF and OME-TIFF files."
+            self.application.invalidate()
+            return
+        self.editing = "destination"
+        self.entry.text = ""
+        self.entry.buffer.cursor_position = len(self.entry.text)
+        self.application.layout.focus(self.entry)
+        self.application.invalidate()
+
+    def step_destination(self, delta: int) -> None:
+        if self.navigation is not None:
+            self.navigation.step(delta)
+        else:
+            self.message = "This view has no page/series navigator."
+            self.application.invalidate()
+
     def _accept_edit(self, buffer: Buffer) -> bool:
+        if self.editing == "destination":
+            try:
+                destination = self.navigation.document.validate_index(int(buffer.text.strip()))
+            except (ValueError, TypeError) as error:
+                self.message = f"Invalid {self.navigation.document.label}: {error}"
+                self.application.invalidate()
+                return True
+            self.cancel_edit()
+            self.navigation.go(destination)
+            return True
         try:
             value = float(buffer.text)
             current = self.windows[self.focused_channel]
@@ -377,6 +430,9 @@ class Viewer:
                 f"| {view.width / max(1, self.canvas_size[0]):.2f} px/col | {calibration}")
 
     def _footer(self) -> str:
+        if self.navigation is not None and not self.show_help:
+            return (" q quit | +/- zoom | [/] or PgUp/PgDn pages/series | p jump | ? help\n "
+                    + safe_label(self.message))
         if self.show_help:
             return (" arrows: pan | wheel/+/-: zoom | drag: pan | r: fit | c: panel | Tab: focus\n"
                     " 1..9: solo channel | ,/.: focus | space: toggle | l/u/g: limits "

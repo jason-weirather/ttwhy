@@ -104,3 +104,27 @@ class ChannelControl(UIControl):
                 viewer.focused_channel = index
                 viewer.toggle_channel()
         return None
+
+
+def navigation_fragments(viewer: "Viewer") -> list:
+    """Clickable, single-line page/series controls; image wheel remains zoom."""
+    nav = viewer.navigation
+    if nav is None:
+        return []
+
+    def previous(event):
+        if viewer.editing is None and event.event_type == MouseEventType.MOUSE_UP:
+            viewer.step_destination(-1)
+
+    def following(event):
+        if viewer.editing is None and event.event_type == MouseEventType.MOUSE_UP:
+            viewer.step_destination(1)
+
+    def jump(event):
+        if viewer.editing is None and event.event_type == MouseEventType.MOUSE_UP:
+            viewer.begin_destination()
+
+    return [("class:status", " [<] ", previous),
+            ("class:status", "[>] ", following),
+            ("class:status", "[p: go] ", jump),
+            ("class:status", safe_label(nav.status()))]

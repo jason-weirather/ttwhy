@@ -9,7 +9,8 @@ from tempfile import NamedTemporaryFile
 import click
 
 from . import __version__
-from .image_input import DEFAULT_PDF_DPI, image_kind, open_image
+from .image_input import image_kind, open_image, pdf_raster_shape
+from .pdf_workers import DEFAULT_PDF_MAX_DPI, pdf_dpi_steps
 from .intensity_window import IntensityWindow
 from .terminal_capabilities import available_color_depth, resolve_auto_mode
 from .text_renderer import RENDER_MODES, TextRenderer
@@ -45,8 +46,11 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
               help="One-based PDF page to display (default: 1).")
 @click.option("--frame", "frame_index", type=click.IntRange(min=0),
               help="Zero-based raster frame, for GIF/APNG/WebP (default: 0; no playback).")
-@click.option("--pdf-dpi", type=click.FloatRange(min=0, min_open=True),
-              help="PDF raster resolution at opening (default: 144 DPI); zoom reuses this raster.")
+@click.option("--pdf-max-dpi", type=click.FloatRange(min=0, min_open=True),
+              help="PDF detail ceiling (default: 600 DPI). Viewer opens at up to 144 DPI, "
+                   "then refines through 300/600 and the ceiling. Snapshots use the ceiling.")
+@click.option("--pdf-cache-pages", type=click.IntRange(min=1),
+              help="PDF page pyramids retained in RAM (default: 3; 1 disables prefetch).")
 @click.option("--background", type=click.Choice(["white", "black"]),
               help="Matte for raster transparency and PDF pages (default: white).")
 @click.option("--channel", "channels", type=click.IntRange(min=0), multiple=True, default=(0,),
@@ -65,7 +69,8 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
 @click.option("--cell-aspect", type=click.FloatRange(min=0, min_open=True), default=2.0,
               help="Terminal cell height divided by width.")
 @click.option("--region", type=float, nargs=4, metavar="X Y WIDTH HEIGHT",
-              help="Initial viewport in base-image pixels instead of fitting the image.")
+              help="Initial viewport in base-image pixels instead of fitting. PDF coordinates use "
+                   "the initial preview grid (up to 144 DPI), also for snapshots.")
 @click.option("--cache-mib", type=click.FloatRange(min=0), default=32.0,
               help="Maximum retained resampled-preview cache size; decoder storage is separate.")
 @click.option("--max-read-pixels", type=click.IntRange(min=1), default=4194304,
@@ -82,7 +87,8 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
               help="Refuse to replace an existing snapshot destination.")
 def main(
     input_path: Path, series: int, page: int | None, frame_index: int | None,
-    pdf_dpi: float | None, background: str | None, channels: tuple[int, ...], lower: float | None,
+    pdf_max_dpi: float | None, pdf_cache_pages: int | None,
+    background: str | None, channels: tuple[int, ...], lower: float | None,
     upper: float | None, mode: str, color: bool | None, invert: bool | None,
     cell_aspect: float, region: tuple[float, ...] | None, cache_mib: float,
     max_read_pixels: int, snapshot: bool, columns: int, rows: int, ansi: bool,
@@ -91,12 +97,15 @@ def main(
     """Explore OME-TIFF, ordinary images, or a PDF page as zoomable terminal text.
 
     Wheel/+/- zoom, arrows or mouse drag pan, c toggles the channel panel.
+    PgUp/PgDn or [/] flip PDF pages/OME series; p jumps to a specific page/series.
     l/u/g edit limits and gamma; m cycles render modes; b toggles blocks; ? shows help.
     """
     if (lower is None) != (upper is None):
         raise click.UsageError("--lower and --upper must be supplied together")
     if not snapshot and (output_path is not None or ansi or no_overwrite):
         raise click.UsageError("--output-path, --ansi and --no-overwrite require --snapshot")
+    if snapshot and pdf_cache_pages is not None:
+        raise click.UsageError("--pdf-cache-pages applies only to interactive PDF viewing")
     if no_overwrite and output_path is None:
         raise click.UsageError("--no-overwrite requires --output-path")
     if snapshot and color is True and not ansi:
@@ -134,56 +143,72 @@ def main(
         if kind == "tiff":
             name += f" | series {series}"
         elif kind == "pdf":
-            dpi = DEFAULT_PDF_DPI if pdf_dpi is None else pdf_dpi
+            dpi = pdf_dpi_steps(DEFAULT_PDF_MAX_DPI if pdf_max_dpi is None else pdf_max_dpi)[-1]
             name += f" | page {page or 1} | {dpi:g} DPI raster"
         elif frame_index is not None:
             name += f" | frame {frame_index} (0-based)"
         matte = None if background is None else ((255, 255, 255) if background == "white"
                                                 else (0, 0, 0))
+        if not snapshot:
+            from .viewer.file_viewer import view_file
+
+            asyncio.run(view_file(
+                input_path, series=series, page=page, frame=frame_index,
+                pdf_max_dpi=pdf_max_dpi, pdf_cache_pages=pdf_cache_pages, background=matte,
+                channels=channels, window=window, mode=mode, color=use_color, invert=invert,
+                cell_aspect=cell_aspect, viewport=viewport, cache_mib=cache_mib,
+                max_read_pixels=max_read_pixels,
+            ))
+            return
+        if kind != "pdf" and pdf_max_dpi is not None:
+            raise ValueError("--pdf-max-dpi applies only to PDF; TIFF/raster options do not apply")
         with (
             open_image(input_path, series=series, page=page, frame=frame_index,
-                       pdf_dpi=pdf_dpi, background=matte) as image,
+                       pdf_dpi=dpi if kind == "pdf" else None, background=matte) as image,
             ViewSession(image, name=name,
                         cache_mib=cache_mib, max_read_pixels=max_read_pixels) as session,
         ):
+            if kind == "pdf" and viewport is not None:
+                # --region stays on the quick-preview coordinate grid even when
+                # a deterministic snapshot renders directly at the detail ceiling.
+                initial_dpi = pdf_dpi_steps(dpi)[0]
+                if initial_dpi != dpi:
+                    height, width = pdf_raster_shape(input_path, page or 1, initial_dpi)
+                    sy, sx = session.info.shape[0] / height, session.info.shape[1] / width
+                    viewport = Viewport(viewport.x * sx, viewport.y * sy,
+                                        viewport.width * sx, viewport.height * sy)
             selected = session._select_channels(channels)
             renderer = TextRenderer(
                 mode=mode, color=use_color,
                 invert=session.info.is_rgb if invert is None else invert, cell_aspect=cell_aspect,
             )
-            if snapshot:
-                if viewport is None:
-                    viewport, limited = session.fit(columns=columns, rows=rows, renderer=renderer,
-                                                    channels=selected)
-                    if limited:
-                        click.echo(
-                            "Read budget: rendering a bounded center crop, not the whole image.",
-                            err=True,
-                        )
-                sample_rows, sample_columns = renderer.sample_shape(columns=columns, rows=rows)
-                plan = session.plan(viewport, rows=sample_rows, columns=sample_columns,
-                                    channels=selected)
-                if plan.level.approximate:
-                    click.echo("Pyramid scale unknown: using approximate extent-fit display mapping.",
-                               err=True)
-                samples = session.sample(plan)
-                styles = session.prepare_styles(samples, windows=[window] * len(selected))
-                frame = session.render(samples, styles=styles, renderer=renderer,
-                                       columns=columns, rows=rows)
-                text = frame.to_text(ansi=ansi) + "\n"
-                if output_path is None:
-                    click.echo(text, nl=False, color=ansi)
-                else:
-                    _write_text(output_path, text, overwrite=not no_overwrite)
+            if viewport is None:
+                viewport, limited = session.fit(columns=columns, rows=rows, renderer=renderer,
+                                                channels=selected)
+                if limited:
+                    click.echo(
+                        "Read budget: rendering a bounded center crop, not the whole image.",
+                        err=True,
+                    )
+            sample_rows, sample_columns = renderer.sample_shape(columns=columns, rows=rows)
+            plan = session.plan(viewport, rows=sample_rows, columns=sample_columns,
+                                channels=selected)
+            if plan.level.approximate:
+                click.echo("Pyramid scale unknown: using approximate extent-fit display mapping.",
+                           err=True)
+            samples = session.sample(plan)
+            styles = session.prepare_styles(samples, windows=[window] * len(selected))
+            frame = session.render(samples, styles=styles, renderer=renderer,
+                                   columns=columns, rows=rows)
+            text = frame.to_text(ansi=ansi) + "\n"
+            if output_path is None:
+                click.echo(text, nl=False, color=ansi)
             else:
-                from .viewer import Viewer
-
-                asyncio.run(Viewer(session, channels=selected, window=window, renderer=renderer,
-                                   viewport=viewport).run())
+                _write_text(output_path, text, overwrite=not no_overwrite)
     except MemoryError as error:
         raise click.ClickException(
             "Not enough RAM to open/render this image. Ordinary images retain a decoded "
-            "raster and pyramid; for PDF, try a lower --pdf-dpi."
+            "raster and pyramid; for PDF, try a lower --pdf-max-dpi."
         ) from error
     except (ValueError, LookupError, OSError, RuntimeError, EOFError) as error:
         raise click.ClickException(str(error)) from error

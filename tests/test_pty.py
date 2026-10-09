@@ -121,8 +121,51 @@ def test_new_file_formats_real_cli_auto_zoom_and_terminal_restoration(tmp_path, 
         terminal.expect(pexpect.EOF)
     finally:
         terminal.close(force=True)
-    assert terminal.exitstatus == 0
+    assert terminal.exitstatus == 0, transcript.getvalue()
     output = transcript.getvalue()
     assert "Traceback" not in output and "▀" in output
     assert "\x1b[?1049h" in output and "\x1b[?1049l" in output
     assert "\x1b[?1006l" in output and "\x1b[?25h" in output
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX pseudo-terminal test")
+@pytest.mark.parametrize("kind", ["pdf", "tiff"])
+def test_document_navigation_in_real_terminal(tmp_path, kind):
+    from test_document_navigation import write_book, write_series
+
+    pexpect = pytest.importorskip("pexpect")
+    if kind == "pdf":
+        pytest.importorskip("pypdfium2")
+        path = write_book(tmp_path / "book.pdf")
+        options = ["--pdf-max-dpi", "144", "--pdf-cache-pages", "1"]
+        label, target, final_title = "page", "4", "page 4/5"
+    else:
+        path = tmp_path / "series.ome.tif"
+        write_series(path)
+        options = []
+        label, target, final_title = "series", "2", "series 2 of 3"
+    env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
+    env.pop("NO_COLOR", None)
+    env.pop("PROMPT_TOOLKIT_COLOR_DEPTH", None)
+    terminal = pexpect.spawn(sys.executable, ["-m", "ttwhy", str(path), *options],
+                             encoding="utf-8", dimensions=(26, 110), env=env, timeout=15)
+    transcript = io.StringIO()
+    terminal.logfile_read = transcript
+    try:
+        terminal.expect(r"\| blocks ")
+        terminal.send("p")
+        terminal.expect(f"Go to {label}")
+        terminal.send(target + "\r")
+        # Repaint after selection so terminal screen-diff cursor reuse does not
+        # hide the complete title from this output-level assertion.
+        time.sleep(.25)
+        terminal.setwinsize(27, 111)
+        terminal.expect(final_title)
+        terminal.send("q")
+        terminal.expect(pexpect.EOF)
+    finally:
+        terminal.close(force=True)
+    output = transcript.getvalue()
+    assert terminal.exitstatus == 0, output
+    assert "Traceback" not in output
+    assert "\x1b[?1049l" in output and "\x1b[?1006l" in output and "\x1b[?25h" in output

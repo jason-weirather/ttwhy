@@ -252,3 +252,82 @@ not a text/search interface or unbounded vector zoom. Native PDFium calls within
 ttwhy are serialized; direct PDFium use elsewhere in an embedding application
 must coordinate separately. RAM storage follows Omeify's array ownership policy
 and is not governed by the per-view source-sample budget.
+
+## PDF page / OME series navigation and progressive detail (October 2026)
+
+This patch targets the supplied `c43a5e18b66bd1e608c883f24308471a6fbc0cb0` snapshot.
+No dependency, Python minimum, package version, or text-rendering algorithm changes.
+The original 144-DPI/fixed-resolution validation above is historical; interactive
+PDF viewing now refines up to `--pdf-max-dpi` (600 by default).
+
+### Executed checks
+
+**314 tests passed across the final split runs:** 302 non-PTY tests and 12 POSIX
+pseudo-terminal tests. This includes the existing 281 tests, with CLI PDF-DPI
+expectations updated for the intentional flag replacement. The non-PTY run reports
+**92% statement coverage**. Coverage does not instrument spawned PDF or terminal
+processes; their actual behavior has explicit integration assertions. The PTY tests
+report Python 3.13 `forkpty` deprecation warnings, not application failures.
+
+Environment: Linux, Python 3.13.5, NumPy 2.3.5, SciPy 1.17.0, Pillow 12.3.0,
+pypdfium2 5.8.0, tifffile 2026.5.15, prompt_toolkit 3.0.52, pytest 9.0.2.
+Tests use the actual Omeify 0.21.0 source (`6d9f5ff`), not an imitation of its API.
+All reconstructed baseline ttwhy file byte sizes were checked against the supplied
+snapshot. The patch is checked against a fresh baseline reconstruction. Wheel and
+source-distribution builds succeed with the installed setuptools backend.
+
+New checks exercise direct page/series entry, invalid destinations, cancellation,
+PageUp/PageDown, bracket navigation, clickable navigation buttons, RGB/multichannel
+series changes, and OME navigation with whole-image materialization prohibited.
+Actual terminal subprocesses cover both PDF and OME destination entry, resize,
+exit status, alternate-screen restoration, mouse state and cursor restoration.
+The normal PDF terminal test quits with real refinement work outstanding.
+
+Actual spawned PDF jobs test native rendering, RGB byte order, owned/read-only
+pyramids, worker death, process cancellation, receiver cleanup and no image-cache
+files. A real file-viewer test reaches 600 DPI, changes pages, rapidly retargets,
+then quits and verifies that child processes are reaped. Controlled-completion
+tests additionally exercise 600-before-300 results, current-page priority before
+neighbor work, cached-page reuse, moving-cache eviction, released distant images,
+coalesced source loads, and source handoffs while a display read is still running.
+
+Fractional PDF page extents test page-relative camera preservation rather than an
+assumed exact DPI ratio. Contrast survives upgrades. A custom read-budget test
+verifies that automatic refinement cannot move the camera: a rejected upgrade
+stays cached, then succeeds after a closer zoom. Snapshot coordinates are checked
+against the same initial-preview grid. High-detail failures preserve a usable
+lower-resolution source and display an error.
+
+The terminal tests exposed a cancellation-lifetime race during development. The
+final scheduler uses Python 3.11 TaskGroup to await every sibling finalizer. A
+regression test deliberately delays one finalizer while the other finishes and
+verifies that shutdown does not close the receivers early.
+
+### Full-page and visual spot checks
+
+One synthetic letter-size vector PDF was opened at 144 DPI, then rasterized at
+300 and 600 DPI in parallel with the actual worker implementation. In this one
+run, quick-preview rasterization/pyramid preparation took about 0.76 seconds;
+refinement/transfer took about 3.24 and 3.84 seconds from submission, respectively.
+These are environment- and workload-specific spot checks, not benchmark promises.
+
+The resulting 600-DPI raster was 5100 by 6601 RGB pixels (PDFium rounds native
+raster extents); its retained pyramid was about **128.4 MiB**. The largest child's
+reported peak RSS was about **1097 MiB**, illustrating that construction and IPC
+scratch are much larger than retained raster storage. This does not measure or
+cap total process-tree RSS, and does not imply every PDF page is safe at 600 DPI.
+
+Actual half-block output for the same close-up of six-point lettering and fine
+vector lines at 144/600 DPI was rasterized and visually inspected. These were
+reconstructions of TextImage foreground/background colors, not photographs or
+screenshots of a physical terminal. Fixtures, inspection images and fonts are not
+bundled in the patch or package.
+
+### Remaining validation limits
+
+Python 3.11 grammar checks pass; an actual Python 3.11 runtime was not available.
+Native macOS/Windows terminals, SSH/tmux transport, minimum supported PDFium/Pillow
+versions, large production OME series and complex real-world PDFs were not tested.
+The standalone Ruff executable was unavailable. Snapshot and array-renderer
+regressions, source lifetime tests and actual synthetic PDF/OME integrations were
+run. No claim of diagnostic color management or unrestricted vector zoom is made.

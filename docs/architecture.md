@@ -19,17 +19,19 @@ prompt_toolkit.
 
 ## Modules
 
-The CLI calls `image_input.open_image()` and passes its open Omeify Image to
-`ViewSession`. OME-TIFF still uses `OMETiffReader` directly, with its original
-regional reads and stored levels. Ordinary raster files and one selected PDF page
-are decoded once and wrapped through Omeify's public array API. There is no
-second TIFF decoder or second renderer. `view_info.py` derives display geometry
-from the public image descriptor.
-`ViewSession` uses a session-bound borrowed Omeify image view, generic channels,
-regional reads, and source cache eviction. It is the same path for a TIFF,
-array, or externally implemented procedural image. There is no ttwhy backend
-registry, TIFF decoder, or dependency on Tilework or Mocktome. The existing
-Image/ImageSource contract is reused rather than replaced with a viewer adapter.
+Snapshots call `image_input.open_image()` and pass its open Omeify Image to
+`ViewSession`. The interactive file entry point is `viewer.view_file()`. It uses
+`ImageDocument` for PDF/OME selection and `DocumentNavigation` for controls,
+source ownership, progressive PDF work and the page cache. Both paths still use
+the same `ViewSession` and renderer. OME-TIFF uses only `OMETiffReader`, with its
+original regional reads and stored levels. Ordinary files and completed PDF
+rasters are wrapped through Omeify's public array API.
+
+`view_info.py` derives display geometry from the public image descriptor.
+`ViewSession` borrows a stable, open Omeify image. Its Image/ImageSource contract,
+read budget, raw-preview cache and rendering stages are unchanged. File, array
+and externally implemented procedural sources share this path. There is no
+second TIFF decoder and no dependency on Tilework or Mocktome.
 
 `viewport.py` owns camera geometry. `view_session.py` owns planning, read budgeting,
 preview sampling, preview cache, and orchestration of normalization/rendering.
@@ -48,7 +50,7 @@ normalization is a display operation, not source color normalization.
 
 `viewer/` contains terminal controls, bindings, worker requests, and application
 lifecycle. UI painting reuses prepared cell/style runs; it never decodes tiles.
-The event loop owns UI state. A single worker owns expensive sampling/rendering,
+The event loop owns UI state. A single display worker owns sampling/rendering,
 with a latest-pending-request slot. There is no unbounded queue of old wheel events
 waiting to become images. Accepted completed frames carry their generation number;
 a stale generation cannot replace the current request's result.
@@ -65,11 +67,21 @@ Even `ttwhy.open_image` remains importable without loading those decoders.
 One selected raster frame is loaded, orientation-corrected, and composited over
 a chosen opaque matte before reduction. Common display modes become RGB8;
 16-bit scalar PNG retains uint16 intensity. ICC color conversion is out of scope.
-PDF pages render once at the requested opening DPI. RGB byte order is explicit,
-and the native bitmap is copied before bitmap/page/document cleanup. All ttwhy
-PDFium work, including import and cleanup, is serialized under one lock; it
-finishes before the viewer worker starts. Unrelated code using PDFium directly
-in the same process must coordinate its own calls with this constraint.
+The single-image `open_image(..., pdf_dpi=...)` operation remains a fixed-DPI
+rasterization. All parent-process PDFium work, including import and native cleanup,
+uses one lock. Unrelated PDFium callers in an embedding application must coordinate
+their own native calls. RGB byte order is explicit and native bitmap pixels are
+copied before their bitmap/page/document handles close.
+
+Interactive PDFs open at min(144, max-DPI). After the first frame, independent
+spawned processes call the same PDF rasterizer and pyramid builder for higher
+resolutions. Only NumPy arrays cross private, per-job pipes; no native handles,
+shared pool queue, temporary file or second renderer is introduced. At most two
+processes run concurrently. Receiver threads keep large transfers/unpickling off
+the event loop. Terminating an obsolete process discards its private pipe; all
+receivers and processes are drained/joined before shutdown. `asyncio.TaskGroup`
+waits for every child finalizer, including cancellation, rather than returning
+when only the first cancelled child has finished.
 
 `image_pyramid.py` performs file-free dyadic reduction through 1x1. Level zero is
 an independent unchanged copy, and all retained levels are immutable. Float64
@@ -86,10 +98,53 @@ references retain their arrays after close, following Omeify's standard ownershi
 contract; releasing the references releases this storage. CLI process exit also
 releases it. OME-TIFF's existing read/cache/lifetime policy is unchanged.
 
-`--series` remains zero-based for OME-TIFF; `--page` is one-based for PDF;
-`--frame` is zero-based for ordinary raster frames. Invalid cross-kind selections
-fail explicitly. PDF zoom enlarges the selected raster, not live vectors; page
-switching and animation playback are deliberately not added in this pass.
+## Document navigation and progressive source lifetimes
+
+`--series` and the OME jump prompt are zero-based; PDF `--page` and its prompt are
+one-based. PageUp/PageDown and brackets share the same document navigator; `p`
+reuses numeric entry without stealing the channel number shortcuts or gamma's
+`g` key. A clickable navigation bar shows the selection, count and PDF progress.
+Raster frames remain startup-only. New pages/series fit; resolution upgrades do
+not reset the camera or contrast. New OME series initialize their own channels.
+
+The event loop owns the document cache and reference counts. `DocumentItem`
+retains an open image independently for the active viewer, pending handoff, and
+cache. Only the best completed pyramid per page is cached, with three pages by
+default. Source swaps happen in the display pump, between completed reads. The old
+ViewSession then closes and releases its active item. Creating a new session for
+an upgrade prevents stale raw-preview cache reuse. No mutable source geometry or
+private Omeify source/cache fields are used.
+
+An upgrade scales the viewport by actual old/new raster extents on each axis,
+preserving page-relative pixel-edge coordinates despite noninteger DPI ratios and
+rounded dimensions. It never fits again just because more detail became ready.
+If a deliberately small read budget rejects the unchanged field at that DPI,
+the old source remains usable and the better pyramid stays cached. A later camera
+or renderer change can retry the upgrade; identical repaints do not retry forever.
+PDF `--region` coordinates are on the initial quick-preview grid even in a snapshot.
+
+Requested navigation and displayed selection are distinct: the old page is never
+relabeled as the new one while loading. Navigation retargets the one source-loader
+thread instead of queuing every keypress. A finished obsolete load is released,
+not displayed. Recoverable open errors keep the previous source. Old PDF refinement
+and neighbor jobs are cancelled; a late lower-DPI result cannot downgrade the active
+or cached page. The next/previous pages are prefetched only after current-page
+refinement reaches its ceiling. Distant cached pages are pruned on navigation.
+
+`--pdf-max-dpi` replaces the CLI `--pdf-dpi`; the default sequence is 144/300/600.
+Custom limits append the exact requested ceiling to the standard lower stages.
+Snapshots render the selected page directly at the ceiling, deterministically,
+without processes or prefetch. The explicit Python `open_image(..., pdf_dpi=...)`
+API continues to yield one stable, fixed-resolution image. `Viewer(session)`
+continues to borrow that stable session; `view_file()` owns navigation lifetimes.
+
+Process memory includes active/cached rasters, old/new source handoffs, reduction
+scratch and pipe-transfer copies. Page count and small-preview bytes are different
+budgets, neither a process-tree RSS limit. Quitting reaps refinement processes;
+an in-flight parent quick-preview/TIFF read must finish before its image closes.
+No work is started by importing the array renderer, and no PDF worker writes a
+persistent image cache. Executable Python embeddings must use a main guard for
+spawn, as the CLI module does.
 
 ## Structured text rendering
 

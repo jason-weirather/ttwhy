@@ -56,6 +56,20 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
     def zoom_out(event: KeyPressEvent) -> None:
         viewer.zoom(1 / 1.25)
 
+    @bindings.add("pageup", filter=browsing)
+    @bindings.add("[", filter=browsing)
+    def previous_item(event: KeyPressEvent) -> None:
+        viewer.step_destination(-1)
+
+    @bindings.add("pagedown", filter=browsing)
+    @bindings.add("]", filter=browsing)
+    def next_item(event: KeyPressEvent) -> None:
+        viewer.step_destination(1)
+
+    @bindings.add("p", filter=browsing)
+    def destination(event: KeyPressEvent) -> None:
+        viewer.begin_destination()
+
     @bindings.add("home", filter=browsing)
     @bindings.add("r", filter=browsing)
     def fit(event: KeyPressEvent) -> None:

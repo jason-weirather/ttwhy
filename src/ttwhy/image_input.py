@@ -137,7 +137,7 @@ def _pdf_pixels(path: Path, page: int, dpi: float,
                 dimensions = (selected.get_width() * scale, selected.get_height() * scale)
                 if any(not isfinite(v) or v <= 0 or ceil(v) >= 2**31 for v in dimensions):
                     raise ValueError(
-                        "PDF raster dimensions are invalid or too large; lower --pdf-dpi"
+                        "PDF raster dimensions are invalid or too large; lower --pdf-max-dpi"
                     )
                 with closing(selected.render(
                     scale=scale, rev_byteorder=True, fill_color=(*background, 255),
@@ -173,7 +173,7 @@ def open_image(
     after close; drop those references to release it. TIFF errors never fall
     through to another decoder. Decoders are imported only when needed.
     """
-    from omeify import ImageLevel, MultichannelImage, OMETiffReader, RGBImage
+    from omeify import OMETiffReader
 
     path = Path(path)
     series = _index(series, "series")
@@ -190,7 +190,7 @@ def open_image(
     if kind == "tiff":
         if page is not None or frame is not None or pdf_dpi is not None or background is not None:
             raise ValueError(
-                "TIFF uses --series; --page/--frame/--pdf-dpi/--background do not apply"
+                "TIFF uses --series; --page/--frame/PDF DPI/--background do not apply"
             )
         with OMETiffReader(path, series=series) as image:
             yield image
@@ -206,10 +206,19 @@ def open_image(
         pixels = _pdf_pixels(path, page or 1, dpi, matte)
     else:
         if page is not None or pdf_dpi is not None:
-            raise ValueError("--page and --pdf-dpi apply only to PDF; use --frame for images")
+            raise ValueError("--page and PDF DPI options apply only to PDF; use --frame for images")
         pixels = _raster_pixels(path, frame or 0, matte)
     arrays = image_pyramid(pixels)
     del pixels
+    with array_image(arrays) as image:
+        yield image
+
+
+@contextmanager
+def array_image(arrays: Sequence[NDArray]) -> Iterator["Image"]:
+    """Borrow an owned dyadic RAM pyramid through Omeify's public array API."""
+    from omeify import ImageLevel, MultichannelImage, RGBImage
+
     rgb = arrays[0].ndim == 3
     axes = "YXS" if rgb else "YX"
     levels = tuple(ImageLevel(i, axes, array.shape, downsample_yx=(2**i, 2**i))
@@ -220,3 +229,21 @@ def open_image(
         channel_names=("RGB" if rgb else "Intensity",),
     ) as image:
         yield image
+
+
+def pdf_page_count(path: str | Path) -> int:
+    """Read the page count only; all native handle lifetimes remain inside the lock."""
+    with PDF_LOCK:
+        import pypdfium2 as pdfium
+
+        with pdfium.PdfDocument(Path(path)) as document:
+            return len(document)
+
+
+def pdf_raster_shape(path: str | Path, page: int, dpi: float) -> tuple[int, int]:
+    """Declared raster extent in YX order, including PDF page rotation."""
+    with PDF_LOCK:
+        import pypdfium2 as pdfium
+
+        with pdfium.PdfDocument(Path(path)) as document, closing(document[page - 1]) as selected:
+            return ceil(selected.get_height() * dpi / 72), ceil(selected.get_width() * dpi / 72)

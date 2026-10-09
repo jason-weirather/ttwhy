@@ -46,8 +46,9 @@ python -m pip install -e '.[pdf]'           # checkout, including PDF support
 Pillow supplies ordinary image codecs. The `pdf` extra adds pypdfium2, a Python
 binding with a native PDFium renderer. This is not a standard-library-only or
 all-pure-Python codec stack. There is no ImageMagick, Ghostscript, Poppler command,
-OpenCV, browser, or external conversion process. Decoders are imported only when
-used; array rendering does not import Pillow, PDFium, Omeify, or the terminal UI.
+OpenCV, browser, or external converter. PDF refinement uses standard-library
+multiprocessing to run the same Python reader in isolated workers. Decoders are
+imported only when used; array rendering does not import Pillow, PDFium, Omeify, or the terminal UI.
 OME-TIFF still opens regionally without a scan or pyramid build. Ordinary files
 explicitly take the eager, RAM-only path described below.
 
@@ -59,9 +60,12 @@ ttwhy screenshot.png
 ttwhy illustration.webp
 ttwhy icon.png --background black          # transparent pixels default to white
 
-ttwhy document.pdf                         # first page, rasterized at 144 DPI
+ttwhy document.pdf                         # quick 144 DPI, then 300 and 600 DPI
 ttwhy document.pdf --page 3                 # PDF pages are ONE-based
-ttwhy document.pdf --page 3 --pdf-dpi 300    # more base detail for closer zoom
+ttwhy document.pdf --pdf-max-dpi 144        # cap detail; no higher-resolution jobs
+ttwhy document.pdf --pdf-max-dpi 450        # 144 -> 300 -> 450 DPI
+ttwhy document.pdf --pdf-max-dpi 1200       # 144 -> 300 -> 600 -> 1200 DPI
+ttwhy document.pdf --pdf-cache-pages 1      # current page only; no neighbor prefetch
 
 ttwhy animation.gif --frame 5               # raster frames are ZERO-based
 ttwhy illustration.webp --snapshot --ansi -o preview.ansi
@@ -78,7 +82,7 @@ capable terminals and simple text otherwise. There is no second viewer.
 | GIF, APNG, animated WebP | Frame 0 by default, or select `--frame N`; no animation playback. |
 | ICO | View the decoder's default icon representation. |
 | PPM, PGM, PBM | Ordinary portable raster formats through Pillow. |
-| PDF, with `ttwhy[pdf]` | One selected page rasterized to RGB, then the same in-memory pyramid. |
+| PDF, with `ttwhy[pdf]` | Navigate pages; quick RGB preview followed by sharper, RAM-only pyramids. |
 
 File content determines the reader, not the extension alone. Unsupported formats
 fail explicitly. **Non-OME TIFF, SVG, EPS/PostScript, HEIC/AVIF, JPEG 2000, and raw
@@ -95,15 +99,72 @@ samples, including for higher-bit-depth RGB PNGs; this is not a lossless export
 or a color-managed workstation. Scalar 16-bit PNG values are retained as uint16,
 with the existing intensity-channel contrast controls rather than clipping to 255.
 
-**PDF zoom is bounded by the chosen opening resolution.** A PDF is rendered only
-once at startup, not re-rendered as vectors on every zoom. Increase `--pdf-dpi`
-when more detail is useful. Only the selected page gets a raster and pyramid;
-there is no in-app page switching, text selection/search, password entry, or PDF
-editing. Page rotation, rendered annotations, and available form appearances are
-included, but the viewer is not an interactive PDF forms application. The title
-identifies the selected page and raster DPI. PDF DPI does not invent microscopy
-calibration. To view another page, reopen with `--page`; `--series` remains the
-OME-TIFF selector, and `--frame` is the raster-frame selector.
+### Page and series navigation
+
+**PageDown / `]`** goes forward; **PageUp / `[`** goes back. Press **`p`**, type a
+page number, and press **Enter** to jump directly. Escape or Ctrl-C cancels entry;
+invalid numbers stay in the editor. The navigation bar also has clickable
+previous, next and go-to controls, and shows the current page and document count.
+The mouse wheel over the image remains zoom, not page turning.
+
+The same controls switch **OME-TIFF series**. PDF page numbers are **one-based**;
+OME series indices remain **zero-based**, matching `--page` and `--series`.
+The limits are shown in the jump prompt. Raster frames remain startup-only via
+`--frame`, with no animation playback or frame-navigation UI in this pass.
+
+A new page/series fits the display. PDF contrast, gamma and rendering mode remain
+selected as you turn pages. A new OME series resets channel selection to 0 and
+initializes its own intensity windows; RGB/intensity default density follows the
+new series unless explicitly overridden. Opening an unsupported series reports
+an error and retains the previous view. OME reads still use only Omeify, with no
+pixel scans or in-memory whole-slide pyramid construction.
+
+### Progressive PDF detail
+
+The default **`--pdf-max-dpi` is 600**. First, the selected page opens at 144 DPI
+(or the ceiling itself when lower than 144). Once its first frame reaches the UI,
+up to **two spawned Python processes** independently render and build the 300 and
+600 DPI pyramids. These are real new PDF rasterizations, not enlarged versions
+of the 144 DPI preview. PDFium is not thread-safe, so native refinement work is
+isolated by process rather than concurrent threads sharing the PDF library.
+No converter executable or additional dependency is involved.
+
+Higher-detail results automatically replace the current source **without moving
+the page-relative field of view or resetting contrast**. Completed sources are
+swapped only between display reads. A late 300 DPI result never replaces a ready
+600 DPI image. The title/bar show available detail, the configured ceiling, and
+current builds. Zooming can temporarily magnify the quick preview while sharper
+content is still being prepared; terminal character resolution remains a separate
+limit. A tight custom read budget postpones an upgrade rather than moving the
+camera; a subsequent zoom can use the cached detail.
+
+The stages are 144, 300 and 600 DPI below the chosen limit, followed by the exact
+limit. For example, 200 uses 144/200, 450 uses 144/300/450, and 1200 uses
+144/300/600/1200. There are never more than two active refinement/prefetch processes.
+The old **`--pdf-dpi` CLI option is removed**. The single-image Python
+`open_image(..., pdf_dpi=...)` API remains an explicit fixed-resolution operation.
+
+Only after current-page refinement finishes successfully does ttwhy prepare the
+next and previous pages. The default RAM cache holds **up to three pages**, with
+only the sharpest completed pyramid for each. Moving away prunes distant pages,
+cancels obsolete refinement/prefetch jobs, and prioritizes the new page. Cached
+pages open at their best ready resolution. `--pdf-cache-pages 1` disables neighbor
+prefetch; a limit of 2 prefetches one neighbor, favoring the next page when available. This
+page-count limit is separate from `--cache-mib`, which still bounds small resampled
+previews, not decoded pages or construction scratch. No disk cache is written.
+
+Recoverable high-detail failures leave the usable lower-resolution view and show
+an error. Quitting cancels and reaps the PDF processes and drains their private
+pipes. An already-running quick-preview or TIFF read in the source-loader thread
+must finish before its resources can close, just as display reads do.
+
+Snapshots are deterministic: they render only the selected page, directly at the
+maximum DPI, with no workers or neighbor prefetch. `--pdf-cache-pages` applies only
+to interactive PDF viewing. PDF `--region` coordinates use the initial preview
+pixel grid (up to 144 DPI), also for snapshots, and are mapped to the final raster.
+PDF DPI does not invent microscopy calibration. Page rotation, rendered annotations,
+and available form appearances are included. Text search/selection, password entry,
+PDF editing and interactive form filling are not implemented.
 
 ### RAM-only overviews
 
@@ -118,8 +179,11 @@ For typical two-dimensional images the retained pyramid is approximately **4/3
 of the base raster bytes**; very skinny images can approach twice the base.
 Decoding, copies, float64 sum/count scratch, and display previews add to peak RAM.
 Neither `--cache-mib` nor `--max-read-pixels` caps this initial decode/build or the
-retained pyramid. They still govern the session's preview cache and per-view
-reads. Pillow's large-image safeguards remain enabled; they are not globally
+retained pyramid. PDF pages can additionally have old/new pyramids briefly alive
+during a handoff, plus worker scratch and pipe-transfer copies. `--pdf-cache-pages`
+bounds retained page count, not peak process-tree RSS. High DPI on a large PDF
+page can require substantial RAM; lower `--pdf-max-dpi` for a smaller footprint.
+The existing preview-cache and per-read limits still govern interactive sampling. Pillow's large-image safeguards remain enabled; they are not globally
 disabled. PDF native dimension limits and allocation errors remain errors rather
 than silently reducing the requested DPI. No intermediate image, pyramid file,
 or disk cache is written. Only an explicitly requested snapshot creates output.
@@ -157,6 +221,8 @@ still be split by tmux; ttwhy does not implement a shell or manage tmux sessions
 | Mouse wheel over the image; `+` / `-` | Zoom, anchored to the pointer for the wheel |
 | Arrow keys; left-button drag | Pan the image |
 | `r` or Home | Fit the image, subject to the read budget |
+| PageDown / `]`; PageUp / `[` | Next / previous PDF page or OME series |
+| `p`, number, Enter | Go to a PDF page (1-based) or OME series (0-based) |
 | `c`; Tab | Toggle the sidebar; move focus between image and channels |
 | `,` / `.`; sidebar wheel | Focus the previous / next channel |
 | Space; click a sidebar channel | Toggle the focused channel in the composite |
@@ -384,6 +450,20 @@ session's usable lifetime, including cache hits. Independent `ViewSamples` and
 `TextImage` values remain inspectable afterward.
 For embedding a frontend, `from ttwhy.viewer import Viewer` provides
 `await Viewer(session).run()`; the caller retains the source context while it runs.
+This borrowed single-image workflow does not turn an immutable Image into a
+changing PDF document. For file navigation and progressive PDF refinement, use:
+
+```python
+import asyncio
+from ttwhy.viewer import view_file
+
+if __name__ == "__main__":  # Required for spawned PDF workers in executable scripts.
+    asyncio.run(view_file("document.pdf", page=3, pdf_max_dpi=600))
+```
+
+`view_file` owns its changing images/sessions and shuts down all its workers. Its
+mode is an explicit TextRenderer mode (`blocks` by default); CLI `auto` selection
+still belongs to the CLI. Importing the array renderer does not start workers.
 
 ## Image-backed Python use (0.2)
 
@@ -441,11 +521,14 @@ There are two deliberately different caches:
   and shape share a sample-grid geometry and can reuse one another's raw previews.
   The current rendered frame and its style runs are retained for cheap terminal repaint.
 
-One background worker performs sampling and rendering. New camera requests replace
+One background display worker performs sampling and rendering. New camera requests replace
 pending older ones; an in-flight decode completes safely but its stale result is
 not displayed. Quitting joins the worker before returning control to the source's
 context manager. Decode errors exit with their cause rather than leaving a stale
-frame presented as a successful new view.
+frame presented as a successful new view. File navigation has a separate, single
+source-loader thread. PDF refinement has at most two native worker processes;
+private-pipe reception runs off the UI thread. Sources are never closed or replaced
+under an in-flight display read.
 
 `--max-read-pixels` defaults to 4,194,304 source samples **per request**, counting
 selected channels and all RGB samples. Requests exceeding it are rejected before
@@ -465,10 +548,10 @@ source strip or tile can exceed that target. A poorly tiled source can still be 
 The CLI supports the ordinary image and PDF formats listed above, plus tiled or
 striped **OME-TIFF**, including stored SubIFD pyramids, grayscale, RGB, and planar
 multi-marker images. Python sessions accept an open Omeify intensity or RGB Image,
-including array and procedural backends. One OME series, raster frame, or PDF page
-is viewed per CLI application; choose it at startup with `--series`, `--frame`, or
-`--page`, respectively. Non-singleton Z/T stacks, label-specific
-categorical coloring, in-app series switching, raw vendor formats, OME-Zarr, remote
+including array and procedural backends. PDF pages and OME series can be navigated
+in-app; `--page` and `--series` choose the initial selection. Raster `--frame`
+selection remains startup-only. Non-singleton Z/T stacks, label-specific
+categorical coloring, raw vendor formats, OME-Zarr, remote
 URLs, annotations, segmentation overlays, saved view settings, custom colors in
 the sidebar, and ICC-managed color are not implemented. Explicit categorical LabelImages are rejected rather than assigning continuous
 brightness to arbitrary object IDs. OME-TIFF alone does not declare label semantics;

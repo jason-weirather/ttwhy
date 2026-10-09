@@ -277,10 +277,10 @@ def test_raster_cli_modes(raster, mode, ansi):
     assert len(result.stdout.splitlines()) == 13
 
 
-@pytest.mark.parametrize("options", [["--page", "1"], ["--pdf-dpi", "144"],
+@pytest.mark.parametrize("options", [["--page", "1"], ["--pdf-max-dpi", "144"],
                                       ["--series", "1"], ["--frame", "9"],
-                                      ["--channel", "1"], ["--pdf-dpi", "nan"],
-                                      ["--pdf-dpi", "inf"]])
+                                      ["--channel", "1"], ["--pdf-max-dpi", "nan"],
+                                      ["--pdf-max-dpi", "inf"]])
 def test_wrong_raster_options_are_clean_cli_errors(raster, options):
     result = CliRunner().invoke(main, [str(raster[0]), "--snapshot", *options])
     assert result.exit_code != 0 and "Error:" in result.output
@@ -297,7 +297,7 @@ def test_invalid_library_parameters(raster, options):
 
 
 def test_non_ome_options_rejected_for_tiff(rgb):
-    for flag, value in [("--page", "1"), ("--frame", "0"), ("--pdf-dpi", "144"),
+    for flag, value in [("--page", "1"), ("--frame", "0"), ("--pdf-max-dpi", "144"),
                         ("--background", "white")]:
         result = CliRunner().invoke(main, [str(rgb[0]), "--snapshot", flag, value])
         assert result.exit_code != 0 and "do not apply" in result.output
@@ -412,7 +412,7 @@ def test_pdf_cli_and_bad_page_do_not_write_output(tmp_path):
     path = write_pdf(tmp_path / "pages.pdf")
     out = tmp_path / "preview.ansi"
     runner = CliRunner()
-    result = runner.invoke(main, [str(path), "--snapshot", "--page", "2", "--pdf-dpi", "144",
+    result = runner.invoke(main, [str(path), "--snapshot", "--page", "2", "--pdf-max-dpi", "144",
                                   "--ansi", "--columns", "24", "--rows", "8", "-o", str(out)])
     assert result.exit_code == 0, (result.output, result.exception)
     assert "38;2;0;0;255" in out.read_text() and "▀" in out.read_text()
@@ -431,7 +431,7 @@ def test_corrupt_pdf_and_huge_dpi_are_clean_errors(tmp_path):
     result = CliRunner().invoke(main, [str(broken), "--snapshot"])
     assert result.exit_code != 0 and "Error:" in result.output
     path = write_pdf(tmp_path / "real.pdf")
-    result = CliRunner().invoke(main, [str(path), "--snapshot", "--pdf-dpi", "1e300"])
+    result = CliRunner().invoke(main, [str(path), "--snapshot", "--pdf-max-dpi", "1e300"])
     assert result.exit_code != 0 and "too large" in result.output
 
 
