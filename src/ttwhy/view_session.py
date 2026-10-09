@@ -167,8 +167,8 @@ class ViewSession:
     ) -> ReadPlan:
         """Choose a stored pyramid level and reject excessive reads before I/O.
 
-        rows/columns describe the sample raster, so half-block renderers request
-        twice the terminal row count. Declared sampling scales are authoritative.
+        rows/columns describe the sample raster from renderer.sample_shape(),
+        not necessarily the terminal cell grid. Declared scales are authoritative.
         Unknown-scale levels use labelled approximate extent-fit display mapping.
         """
         self._require_image_open()

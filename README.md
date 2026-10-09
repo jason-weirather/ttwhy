@@ -3,9 +3,10 @@
 A whole slide pathology image viewer in text; because sometimes the answer to “why is this in the terminal?” is “yes.”
 
 `ttwhy` is a library-first image-to-text renderer and a full-screen OME-TIFF viewer.
-The default is actual ASCII density art. Optional Unicode half-blocks carry two
-RGB samples per terminal cell. No terminal bitmap protocol, browser, image server,
-X11, or GPU is required.
+The default is foreground-only **detail** rendering with spatial Unicode Braille.
+**Shape** emphasizes typographic strokes and texture; **simple** retains the original
+ASCII density art. Optional **blocks** retain two RGB samples per terminal cell.
+No terminal bitmap protocol, browser, image server, X11, or GPU is required.
 
 This is an early exploratory viewer, not a diagnostic display or a color-managed
 replacement for a microscopy workstation. It is useful for navigation and visual
@@ -40,7 +41,9 @@ inference, whole-slide pixel scans, or pyramid construction.
 ## Viewer
 
 ```bash
-ttwhy slide.ome.tif
+ttwhy slide.ome.tif                       # detail, the new default
+ttwhy slide.ome.tif --mode shape          # curves, strokes, quieter shading
+ttwhy slide.ome.tif --mode simple         # unchanged legacy ASCII
 
 # Channel indices are zero-based. Repeating the option selects a composite.
 ttwhy multiplex.ome.tif --channel 0 --channel 2
@@ -73,12 +76,54 @@ still be split by tmux; ttwhy does not implement a shell or manage tmux sessions
 | `l` / `u` / `g` | Enter the focused channel's lower / upper limit / gamma |
 | Enter; Escape or Ctrl-C while editing | Apply; cancel numeric entry |
 | `a` | Estimate and lock contrast from the focused channel's visible preview |
-| `t`; `m`; `i` | Toggle image color; ASCII / half-block mode; reverse ASCII density |
+| `m` | Cycle detail / shape / simple / blocks (skip blocks in monochrome) |
+| `b` | Toggle half-block preview; restore the previous text mode and color setting |
+| `t`; `i` | Toggle color without leaving the current text mode; reverse ink density |
 | `?`; `q` or Ctrl-Q | Toggle key help; quit |
 
 When the sidebar has keyboard focus, Up/Down selects its focused channel. At least
 one channel must remain selected. The number shortcuts do not change the zero-based
 indices shown in metadata or accepted by `--channel`.
+
+### Rendering modes
+
+| Mode | Rendering behavior | Plain text / monochrome |
+|---|---|---|
+| `detail` (default) | Eight-dot Braille with local sharpening, tone-balanced dot counts, and spatial dot placement. | Yes, UTF-8 Unicode. |
+| `shape` | Canonical stroke matching with curves, diagonals, punctuation, letters, and subdued tonal fills. | Yes, UTF-8 Unicode. |
+| `simple` | Original ` .:-=+*#%@` brightness ramp and original colored-ASCII semantics. | Yes, ASCII. |
+| `blocks` | Original upper/lower RGB half-block display. | Requires color; snapshots require `--ansi`. |
+
+`--mode ascii` remains an alias for `simple`, including in `TextRenderer`.
+The canonical `renderer.mode` value for that alias is `"simple"`. Custom Python
+`ramp=` values belong to `simple`; the structured modes have their own vocabulary.
+
+Detail and shape both retain **8 rows by 4 columns of display samples per terminal
+cell**, instead of collapsing its shape into one average intensity. Detail groups
+those samples into eight addressed Braille dots, rounds the local ink count with a
+fixed ordered pattern, and puts those dots at the strongest sample positions.
+Shape uses a relief-style transform to emphasize ridges and texture, then balances
+tone with normalized stroke correspondence. Nearly flat areas use a quiet density
+ramp instead of arbitrary letters. These are deterministic display algorithms,
+not learned models, segmentation, or quantitative image measurements.
+
+**Neither new mode paints image-dependent cell backgrounds.** Geometry and tone
+remain in the characters themselves when colors are stripped. Optional color adds
+one foreground hue per character; it cannot give eight Braille dots eight different
+colors. The interactive canvas retains its shared dark background.
+
+The shape vocabulary uses hand-authored geometric descriptors, not measured font
+rasters. Unicode appearance and spacing depend on the terminal's fonts; no font
+files are bundled, discovered, or downloaded. Use `simple` for a strict ASCII
+fallback. Detail is a high-detail attempt within these text constraints, not a
+claim of an optimal reconstruction. Ordered patterns are screen-grid anchored;
+there is no motion registration or guarantee against shimmer during panning.
+
+Richer sampling can choose a finer stored pyramid level and take longer to render.
+The existing source-read budget still applies. Under the same budget, a large or
+poorly pyramidal input may need a smaller initial field in detail/shape than in
+simple. Such a view remains explicitly labeled as a bounded crop. Sampling is
+still regional, and no mode performs a whole-slide scan to improve its picture.
 
 ### Contrast and color
 
@@ -102,12 +147,13 @@ pseudocolor, and clips the composite. Colors are assigned by channel index, not 
 inferred marker identity. There is no color picker in this first version; the library
 accepts explicit RGB colors through `ChannelStyle`.
 
-ASCII uses ` .:-=+*#%@` by default. Colored ASCII uses character density for brightness
-and peak-normalized foreground color for hue. RGB defaults to reversed density so
-white background becomes empty space. `i` changes that behavior. Half-block mode
-uses actual windowed RGB as the upper/lower half-cell colors; density inversion has
-no effect on half-block colors. `--no-color` uses the strongest selected signal for
-a monochrome ASCII view.
+Simple uses ` .:-=+*#%@`, with character density for brightness and peak-normalized
+foreground color for hue. Detail/shape compute ink structure from the strongest
+windowed signal and use an ink-weighted foreground hue. RGB defaults to reversed
+ink density so white background becomes empty space. `i` changes that behavior.
+Half-block mode uses actual windowed RGB as upper/lower half-cell colors;
+inversion has no effect on half-block colors. `--no-color` uses the strongest
+selected signal for a monochrome text view in the selected text mode.
 
 Truecolor is enabled when `COLORTERM` is `truecolor` or `24bit`. An explicit
 `PROMPT_TOOLKIT_COLOR_DEPTH` takes precedence; otherwise prompt_toolkit selects its
@@ -125,7 +171,10 @@ operations as the viewer. It never enters the alternate screen.
 ```bash
 ttwhy slide.ome.tif --snapshot --columns 120 --rows 40
 
-ttwhy slide.ome.tif --snapshot -o preview.txt
+ttwhy slide.ome.tif --snapshot --mode shape --no-color -o shape.txt
+
+# Strict ASCII, preserving the original snapshot rendering:
+ttwhy slide.ome.tif --snapshot --mode simple -o preview.txt
 
 ttwhy slide.ome.tif --snapshot --mode blocks --ansi -o preview.ansi
 ```
@@ -155,6 +204,13 @@ in `[0, 1]`; raw intensity conversion is an explicit separate operation. Omitted
 height/width ratio, which defaults to 2.0. Explicit rows selects the output geometry.
 Nonfinite samples remain missing, not fabricated zero-intensity image data.
 
+When sampling a source yourself, always obtain the required raster dimensions
+from `renderer.sample_shape(columns=..., rows=...)`. Do not assume that terminal
+rows/columns are the sample-grid dimensions. Detail/shape return `(rows * 8,
+columns * 4)`; simple returns `(rows, columns)` and blocks `(rows * 2, columns)`.
+Structured sample grids are capped at 4,194,304 positions before resampling;
+this is a separate bound from `ViewSession`'s source-read budget.
+
 A `TextImage` owns read-only `characters`, optional `foreground`, and optional
 `background` arrays. `to_text(ansi=False)` returns plain text, `to_text(ansi=True)`
 adds SGR colors, and `iter_runs(row)` exposes framework-independent styled runs for
@@ -171,7 +227,7 @@ with (
     OMETiffReader("multiplex.ome.tif") as image,
     ViewSession(image, name="Multiplex", cache_mib=32) as session,
 ):
-    renderer = TextRenderer(mode="ascii", color=True)
+    renderer = TextRenderer(mode="detail", color=True)
     viewport, limited = session.fit(
         columns=120, rows=40, renderer=renderer, channels=[0, 2],
     )
@@ -264,6 +320,8 @@ There are two deliberately different caches:
   assume one separate decoder cache exists for each Channel.
 * ttwhy's byte-bounded LRU of **raw resampled previews**, 32 MiB by default. Contrast,
   gamma, coloring, and density can reuse these samples without reading TIFF data.
+  Richer previews take more bytes, so the same cache holds fewer of them. Detail
+  and shape share a sample-grid geometry and can reuse one another's raw previews.
   The current rendered frame and its style runs are retained for cheap terminal repaint.
 
 One background worker performs sampling and rendering. New camera requests replace

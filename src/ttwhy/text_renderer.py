@@ -1,4 +1,4 @@
-"""ASCII density and optional Unicode half-block renderers."""
+"""Spatial detail, expressive shape, legacy density, and half-block renderers."""
 
 from math import isfinite
 from typing import Literal
@@ -11,35 +11,45 @@ from .resampling import resample_image
 from .text_image import TextImage
 
 DEFAULT_RAMP = " .:-=+*#%@"
-RenderMode = Literal["ascii", "blocks"]
+RenderMode = Literal["detail", "shape", "simple", "ascii", "blocks"]
+TEXT_MODES = ("detail", "shape", "simple")
+RENDER_MODES = (*TEXT_MODES, "blocks")
+MAX_STRUCTURED_SAMPLES = 4_194_304
 
 
 class TextRenderer:
     """Render normalized grayscale or RGB arrays without importing the viewer.
 
     Inputs must be in [0, 1], with nonfinite values allowed as missing pixels.
-    ASCII uses a dark-to-light density ramp. Colored ASCII preserves hue with
-    peak-normalized foreground colors; density carries brightness. ``invert``
-    reverses density, not RGB hue, and is useful for brightfield images.
-    Blocks use actual normalized RGB as upper/lower half-cell colors and do
-    not use density inversion. ASCII remains the default.
+    Detail (default) fits tone-balanced Braille dot patterns. Shape chooses
+    directional/curved strokes and texture from canonical geometry descriptors.
+    Both retain 8-by-4 display samples per cell and use foreground colors only.
+    Simple is the unchanged density ramp; "ascii" is an alias for simple.
+    ``invert`` reverses ink density, not RGB hue. Blocks preserve the original
+    upper/lower two-color preview and ignore inversion. Output is real text in
+    every mode, but only simple guarantees ASCII characters.
     """
 
     def __init__(
         self,
         *,
-        mode: RenderMode = "ascii",
+        mode: RenderMode = "detail",
         color: bool = True,
         invert: bool = False,
         ramp: str = DEFAULT_RAMP,
         cell_aspect: float = 2.0,
     ) -> None:
-        if mode not in ("ascii", "blocks"):
-            raise ValueError("mode must be 'ascii' or 'blocks'")
+        mode = "simple" if mode == "ascii" else mode
+        if mode not in RENDER_MODES:
+            raise ValueError("mode must be detail, shape, simple (alias ascii), or blocks")
         if mode == "blocks" and not color:
-            raise ValueError("Half-block rendering requires color; use ASCII for plain output")
+            raise ValueError(
+                "Half-block rendering requires color; use detail, shape, or simple for plain output"
+            )
         if len(ramp) < 2 or any(ord(x) < 32 or ord(x) > 126 for x in ramp):
             raise ValueError("ramp must contain at least two printable ASCII characters")
+        if mode in ("detail", "shape") and ramp != DEFAULT_RAMP:
+            raise ValueError("Custom density ramps require mode='simple'")
         if not isfinite(cell_aspect) or cell_aspect <= 0:
             raise ValueError("cell_aspect must be positive and finite")
         self.mode, self.color, self.invert = mode, color, invert
@@ -49,6 +59,13 @@ class TextRenderer:
         """Return the normalized raster shape needed to fill a terminal cell grid."""
         columns = positive_integer(columns, "columns")
         rows = positive_integer(rows, "rows")
+        if self.mode in ("detail", "shape"):
+            from .glyph_atlas import SAMPLE_YX
+
+            height, width = SAMPLE_YX
+            if rows * columns * height * width > MAX_STRUCTURED_SAMPLES:
+                raise ValueError("Structured preview exceeds 4,194,304 samples; use fewer cells")
+            return rows * height, columns * width
         return rows * (2 if self.mode == "blocks" else 1), columns
 
     def render(
@@ -74,6 +91,11 @@ class TextRenderer:
         shape = self.sample_shape(columns=columns, rows=rows)
         pixels = (value.astype(np.float32, copy=True) if value.shape[:2] == shape else
                   resample_image(value, rows=shape[0], columns=shape[1]))
+        if self.mode in ("detail", "shape"):
+            from .structured_rendering import render_structured
+
+            return render_structured(pixels, rows=rows, columns=columns, mode=self.mode,
+                                     color=self.color, invert=self.invert)
         valid = (np.isfinite(pixels) if pixels.ndim == 2 else
                  np.isfinite(pixels).all(axis=-1))
         pixels = np.nan_to_num(pixels, nan=0.0, posinf=0.0, neginf=0.0)

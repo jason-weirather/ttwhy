@@ -93,3 +93,66 @@ python -m pytest -q
 Also smoke-test a real RGB and multiplex OME-TIFF, especially when the downstream
 TIFF codec and terminal combination differs from the synthetic fixtures. Python
 3.11 compatibility should not be called fully verified until this lane passes.
+
+## Foreground-only terminal render modes (October 2026)
+
+This patch targets the supplied ttwhy `aed55e5` snapshot. It adds default `detail`,
+artistic `shape`, and legacy `simple` modes; `ascii` remains an alias for simple
+and the original `blocks` renderer remains available. No dependency or Python
+minimum was added/raised; the package version is unchanged at 0.2.0.
+
+### Executed checks for this patch
+
+**163 tests passed**, with **94% reported statement coverage**, on Linux with
+Python 3.13.5 and the actual reconstructed Omeify 0.21.0 source (`6d9f5ff`). NumPy
+2.3.5, SciPy 1.17.0, tifffile 2026.5.15, prompt_toolkit 3.0.52, and pytest 9.0.2
+were used. Four `forkpty` deprecation warnings came from the POSIX terminal tests.
+They were not failures. This is not a separately installed PyPI-wheel test.
+
+The checks include all 256 Braille patterns against independent literal dot
+positions; within-cell geometry that has the same mean but different orientation;
+foreground-only and plain-text output; NaN/partial coverage; deterministic batch
+matching; richer source sampling; retained read/cache budgets; source lifetimes;
+mode cycling; locked windows; monochrome/blocks round-trips; custom legacy ramps;
+and actual keyboard, mouse, resize, and terminal-restoration behavior. All three
+text modes were opened and interrupted through real POSIX pseudo-terminals.
+
+Eight byte-level goldens were captured from the untouched aed55e5 renderer across
+grayscale/RGB, color/no-color, and inversion settings. Simple matches them exactly.
+Four complete old/new CLI workflows also had identical stdout and stderr when
+the new invocation selected the equivalent legacy mode: grayscale snapshot,
+multichannel ANSI snapshot, RGB half-block snapshot, and read-budget-limited crop.
+
+Wheel and source-distribution builds succeeded through the installed setuptools
+backend. The wheel includes both new renderer modules and no font assets.
+Pure-array rendering was checked without importing Omeify or prompt_toolkit.
+All Python source, examples, and tests parse with Python 3.11 grammar.
+
+### Visual inspection and performance scope
+
+Actual `TextImage` results were inspected for the supplied reaction-image crop
+(with its letterboxing removed) and deterministic synthetic brightfield, single
+marker, and multichannel fields from `examples/make_demo.py`. The comparisons
+used equal 80-column text budgets. Inspection images were rasterizations of actual
+characters using local fonts, not generated UI mockups or patient-slide results.
+Those local fonts are not bundled with ttwhy. Raw text and ANSI were also retained.
+
+On a 512-by-512 synthetic RGB array rendered to 120 columns by 40 rows, median
+render-only times over five warm runs were 5.4 ms for simple, 37.1 ms for shape,
+and 35.6 ms for detail. These measurements include array resampling but exclude
+TIFF decoding, terminal repaint, and SSH transport. They are not an interactive
+frame-rate guarantee or a benchmark against other character-art packages.
+
+### Remaining limits
+
+A Python 3.11 interpreter could not be installed in this sandbox because network
+DNS resolution failed. Actual Python 3.11 runtime validation therefore remains
+outstanding; grammar checks are not a substitute. JPEG/LZW/production-slide and
+real macOS/Windows/SSH/tmux validation were not performed in this pass.
+
+Detail's dot-count fit is not a claim of perceptual optimality. Shape's geometric
+stencils are not a measured terminal font. Artistic sharpening/relief can alter
+appearance and must not be interpreted as segmentation or quantitative evidence.
+The ordered pattern is deterministic but screen-grid anchored, so panning can
+still change its texture. Both structured modes may need finer pyramid reads and
+therefore a tighter initial crop under the same source-read budget.

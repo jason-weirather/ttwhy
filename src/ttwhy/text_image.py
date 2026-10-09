@@ -36,7 +36,7 @@ class TextImage:
             raise ValueError("characters must be a nonempty 2D Unicode array")
         if any(len(x) != 1 or not x.isprintable() for x in np.unique(chars)):
             raise ValueError("Each cell must contain exactly one printable character")
-        # Our renderer uses ASCII and U+2580, both single-column characters.
+        # All modes emit individual single-column codepoints, not grapheme clusters.
         from wcwidth import wcwidth
 
         if any(wcwidth(x) != 1 for x in np.unique(chars)):

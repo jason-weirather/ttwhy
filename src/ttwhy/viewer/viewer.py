@@ -20,7 +20,7 @@ from prompt_toolkit.widgets import TextArea
 from ..intensity_window import IntensityWindow
 from ..view_info import ReadBudgetExceeded
 from ..text_image import TextImage
-from ..text_renderer import TextRenderer
+from ..text_renderer import DEFAULT_RAMP, RENDER_MODES, TEXT_MODES, TextRenderer
 from ..view_session import ViewSamples, ViewSession
 from ..viewport import Viewport
 from .bindings import create_bindings
@@ -52,6 +52,9 @@ class Viewer:
         self.focused_channel = self.selected_channels[0]
         self.windows = [window] * len(session.info.channels)
         self.renderer = renderer or TextRenderer(invert=session.info.is_rgb)
+        self.text_mode = (self.renderer.mode if self.renderer.mode in TEXT_MODES else "detail")
+        self.text_color = self.renderer.color
+        self.simple_ramp = self.renderer.ramp
         self.viewport = viewport
         self.frame: TextImage | None = None
         self.samples: ViewSamples | None = None
@@ -273,9 +276,35 @@ class Viewer:
                    "invert": self.renderer.invert, "ramp": self.renderer.ramp,
                    "cell_aspect": self.renderer.cell_aspect}
         options.update(changes)
+        if "ramp" not in changes:
+            options["ramp"] = (self.simple_ramp if options["mode"] in ("simple", "ascii")
+                               else DEFAULT_RAMP)
         self.renderer = TextRenderer(**options)
-        self.message = "Half-block colors are display previews, not color-managed pixels."
+        if self.renderer.mode == "simple":
+            self.simple_ramp = self.renderer.ramp
+        if self.renderer.mode in TEXT_MODES:
+            self.text_mode = self.renderer.mode
+            self.text_color = self.renderer.color
+        self.message = {
+            "detail": "Detail: spatial Braille, tone-balanced dots, no background tiles.",
+            "shape": "Shape: artistic strokes and texture, not a segmentation.",
+            "simple": "Simple: the original ASCII density renderer.",
+            "blocks": "Blocks: original two-color half-block preview.",
+        }[self.renderer.mode]
         self._set_viewport(self.viewport, limit=True)
+
+    def cycle_mode(self) -> None:
+        """Cycle text modes, including half-blocks only when color is enabled."""
+        modes = RENDER_MODES if self.renderer.color else TEXT_MODES
+        index = modes.index(self.renderer.mode)
+        self.change_renderer(mode=modes[(index + 1) % len(modes)])
+
+    def toggle_blocks(self) -> None:
+        """Temporarily show the original half-block preview; remember text style."""
+        if self.renderer.mode == "blocks":
+            self.change_renderer(mode=self.text_mode, color=self.text_color)
+        else:
+            self.change_renderer(mode="blocks", color=True)
 
     def auto_window(self) -> None:
         index = self.focused_channel
@@ -353,8 +382,8 @@ class Viewer:
         if self.show_help:
             return (" arrows: pan | wheel/+/-: zoom | drag: pan | r: fit | c: panel | Tab: focus\n"
                     " 1..9: solo channel | ,/.: focus | space: toggle | l/u/g: limits "
-                    "| a: auto | t: color | m: mode | i: density | q: quit")
-        return (" q quit | +/- zoom | arrows pan | c channels | l/u limits | a auto | ? help\n "
+                    "| a: auto | t: color | m: cycle modes | b: blocks | i: density | q: quit")
+        return (" q quit | +/- zoom | m modes | b blocks | c channels | l/u limits | ? help\n "
                 + safe_label(self.message))
 
     def __repr__(self) -> str:

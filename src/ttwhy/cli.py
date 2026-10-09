@@ -11,7 +11,7 @@ from omeify import OMETiffReader
 
 from . import __version__
 from .intensity_window import IntensityWindow
-from .text_renderer import TextRenderer
+from .text_renderer import RENDER_MODES, TextRenderer
 from .view_session import ViewSession
 from .viewport import Viewport
 
@@ -46,11 +46,13 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
               help="Lower display limit in raw intensity units; pair with --upper.")
 @click.option("--upper", type=float,
               help="Upper display limit in raw intensity units; pair with --lower.")
-@click.option("--mode", type=click.Choice(["ascii", "blocks"]), default="ascii")
+@click.option("--mode", type=click.Choice([*RENDER_MODES, "ascii"]), default="detail",
+              help="detail: spatial Braille; shape: stroke art; simple/ascii: legacy density; "
+                   "blocks: legacy two-color half-blocks.")
 @click.option("--color/--no-color", default=None,
               help="Use RGB/pseudocolor (auto: on in the viewer, off for plain snapshots).")
 @click.option("--invert/--no-invert", default=None,
-              help="Reverse ASCII density (auto: on for RGB, off for fluorescence).")
+              help="Reverse text ink density (auto: on for RGB, off for fluorescence).")
 @click.option("--cell-aspect", type=click.FloatRange(min=0, min_open=True), default=2.0,
               help="Terminal cell height divided by width.")
 @click.option("--region", type=float, nargs=4, metavar="X Y WIDTH HEIGHT",
@@ -79,7 +81,7 @@ def main(
     """Explore a pyramidal OME-TIFF as text, because sometimes the answer is yes.
 
     Wheel/+/- zoom, arrows or mouse drag pan, c toggles the channel panel.
-    l/u/g edit the focused channel's limits and gamma; ? shows more controls.
+    l/u/g edit limits and gamma; m cycles render modes; b toggles blocks; ? shows help.
     """
     if (lower is None) != (upper is None):
         raise click.UsageError("--lower and --upper must be supplied together")
@@ -90,7 +92,9 @@ def main(
     if snapshot and color is True and not ansi:
         raise click.UsageError("Colored snapshots require --ansi")
     if snapshot and mode == "blocks" and not ansi:
-        raise click.UsageError("Half-block snapshots require --ansi; use ASCII for plain text")
+        raise click.UsageError(
+            "Half-block snapshots require --ansi; use detail, shape, or simple for plain text"
+        )
     if not snapshot and (not sys.stdin.isatty() or not sys.stdout.isatty()):
         raise click.UsageError(
             "Interactive viewing requires a terminal; use --snapshot for text output"

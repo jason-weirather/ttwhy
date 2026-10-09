@@ -48,6 +48,54 @@ with a latest-pending-request slot. There is no unbounded queue of old wheel eve
 waiting to become images. Accepted completed frames carry their generation number;
 a stale generation cannot replace the current request's result.
 
+## Structured text rendering
+
+`TextRenderer` defaults to `detail`; `shape` and `simple` are the other text modes.
+`ascii` is an input alias for `simple`. `blocks` retains the original two-color
+half-block path. Simple and blocks retain their previous numerical algorithms.
+
+`renderer.sample_shape()` is the planning boundary: detail and shape ask for
+8-by-4 display samples per terminal cell. The CLI and worker already use that
+public contract, so they preserve subcell structure through regional reading and
+raw resampling, before windowing and composition. This may select a finer pyramid
+level; it does not bypass the source-sample budget or create a second decoder.
+Library callers must use that contract too, rather than passing cell dimensions
+as if all renderers used one sample per cell.
+
+`structured_rendering.py` consumes normalized display samples and emits a normal
+`TextImage`. Detail addresses a 4-by-2 Braille dot grid from the 8-by-4 samples.
+It uses mild local sharpening, an ordered rounding rule for each cell's total dot
+count, and ranks addressed intensities to select dot positions. A small fixed tie
+preference balances nearly equal samples. Zero/absent positions cannot receive
+ink solely through the tie preference. The bit order follows Unicode's dot
+numbering, including the bottom-left/bottom-right bits 6 and 7.
+
+Shape uses a relief-style intensity transform and compares centered, normalized
+patches to the hand-authored stroke descriptors in `glyph_atlas.py`, balancing
+spatial correspondence against tonal error. Low-variation cells use the tonal
+anchors instead of arbitrary letters. These masks are geometric approximations,
+not terminal-font rasters or extracted font data. There is no font dependency.
+
+Normalized convolution excludes missing coverage from neighborhood statistics;
+missing samples do not become false dark boundaries. Candidate descriptors are
+also masked and renormalized on partial cells. Shape matching uses batches of at
+most 256 cells; it never creates a whole-slide candidate tensor. Structured output
+grids have a separate 4,194,304-position cap checked before resampling. Existing
+sample-count and cache budgets remain distinct from a process-RSS limit.
+
+Both structured modes use foreground-only color. Their UTF-8 characters still
+carry the structure in plain snapshots; independent background colors remain
+exclusive to explicit blocks mode. All modes share `TextImage`, terminal runs,
+atomic snapshot publication, and worker lifetime handling. There is no browser,
+model inference, semantic description, random rendering, or persistent state.
+The ordered pattern is screen-grid anchored, not motion-compensated.
+
+The UI's `m` cycles detail/shape/simple/blocks (omitting blocks without color).
+`b` toggles the original half-block preview and restores the previous text/color
+settings. Color toggling preserves a text mode. Switching modes never requests an
+automatic contrast reset: existing per-channel windows stay locked. Detail and
+shape request identical sampling grids and share cached previews for a view.
+
 ## Thread and resource contract
 
 Keep the Omeify image and `ViewSession` contexts open for `Viewer.run()`. The viewer

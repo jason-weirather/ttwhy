@@ -23,7 +23,7 @@ def test_real_terminal_mouse_resize_and_exit(rgb):
         terminal.expect(r"L[0-9]")
         terminal.send("\x1b[<64;25;12M")
         time.sleep(.15)
-        terminal.send("m")
+        terminal.send("b")
         terminal.expect("▀")
         terminal.send("u\x01\x0b200\r")
         # Screen diffs may reuse characters through cursor motion rather than
@@ -45,9 +45,11 @@ def test_real_terminal_mouse_resize_and_exit(rgb):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX pseudo-terminal test")
-def test_terminal_interrupt_restores_screen(mif):
+@pytest.mark.parametrize("mode", ["detail", "shape", "simple"])
+def test_terminal_interrupt_restores_screen(mif, mode):
     pexpect = pytest.importorskip("pexpect")
-    terminal = pexpect.spawn(sys.executable, ["-m", "ttwhy", str(mif[0])], encoding="utf-8",
+    terminal = pexpect.spawn(sys.executable, ["-m", "ttwhy", str(mif[0]), "--mode", mode],
+                             encoding="utf-8",
                              timeout=10, dimensions=(20, 80),
                              env={**os.environ, "TERM": "xterm-256color"})
     transcript = io.StringIO()

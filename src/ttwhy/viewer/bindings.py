@@ -113,12 +113,17 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
     @bindings.add("t", filter=browsing)
     def color(event: KeyPressEvent) -> None:
         color = not viewer.renderer.color
-        viewer.change_renderer(color=color, mode="ascii" if not color else viewer.renderer.mode)
+        mode = (viewer.text_mode if not color and viewer.renderer.mode == "blocks"
+                else viewer.renderer.mode)
+        viewer.change_renderer(color=color, mode=mode)
 
     @bindings.add("m", filter=browsing)
     def mode(event: KeyPressEvent) -> None:
-        mode = "blocks" if viewer.renderer.mode == "ascii" else "ascii"
-        viewer.change_renderer(mode=mode, color=True if mode == "blocks" else viewer.renderer.color)
+        viewer.cycle_mode()
+
+    @bindings.add("b", filter=browsing)
+    def blocks(event: KeyPressEvent) -> None:
+        viewer.toggle_blocks()
 
     @bindings.add("?", filter=browsing)
     def help_message(event: KeyPressEvent) -> None:

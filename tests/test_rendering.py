@@ -99,9 +99,9 @@ def test_area_constant_and_rgb(shape):
 
 def test_ascii_exact_ramp_and_inversion():
     image = np.linspace(0, 1, 10)[None, :]
-    assert TextRenderer(color=False).render(image, columns=10, rows=1).to_text() == " .:-=+*#%@"
-    assert TextRenderer(invert=True).render(image, columns=10, rows=1).to_text() == "@%#*+=-:. "
-    result = TextRenderer(invert=True).render([[np.nan, 0, 1]], columns=3, rows=1)
+    assert TextRenderer(mode="simple", color=False).render(image, columns=10, rows=1).to_text() == " .:-=+*#%@"
+    assert TextRenderer(mode="ascii", invert=True).render(image, columns=10, rows=1).to_text() == "@%#*+=-:. "
+    result = TextRenderer(mode="simple", invert=True).render([[np.nan, 0, 1]], columns=3, rows=1)
     assert result.to_text() == " @ "
 
 
@@ -124,7 +124,7 @@ def test_blocks_preserve_upper_lower_colors():
 
 def test_colored_ascii_hue_and_missing_cells():
     image = np.array([[[.1, .2, .5], [np.nan, np.nan, np.nan]]])
-    frame = TextRenderer().render(image, columns=2, rows=1)
+    frame = TextRenderer(mode="simple").render(image, columns=2, rows=1)
     np.testing.assert_array_equal(frame.foreground[0, 0], [51, 102, 255])
     assert frame.to_text()[1] == " "
     blocks = TextRenderer(mode="blocks").render(np.full((2, 1), np.nan), columns=1, rows=1)

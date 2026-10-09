@@ -79,10 +79,15 @@ async def test_keyboard_zoom_pan_panel_and_modes(mif):
         assert not viewer.panel_visible and viewer.canvas_size[0] == 100
         await send(pipe, "c", viewer, task)
         assert viewer.panel_visible and viewer.canvas_size[0] == 68
+        assert viewer.renderer.mode == "detail"
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "shape" and viewer.frame.background is None
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "simple" and viewer.frame.background is None
         await send(pipe, "m", viewer, task)
         assert viewer.renderer.mode == "blocks" and "▀" in viewer.frame.to_text()
         await send(pipe, "t", viewer, task)
-        assert viewer.renderer.mode == "ascii" and not viewer.renderer.color
+        assert viewer.renderer.mode == "simple" and not viewer.renderer.color
         await send(pipe, "?r", viewer, task)
         assert viewer.show_help
         assert "Fit slide" in viewer.message
@@ -143,8 +148,10 @@ async def test_rgb_initial_limits_and_rendering(rgb):
         assert viewer.windows[0].lower == 0 and viewer.windows[0].upper == 255
         assert viewer.renderer.invert
         assert viewer.frame.foreground is not None
-        await send(pipe, "m", viewer, task)
-        assert viewer.frame.background is not None
+        await send(pipe, "b", viewer, task)
+        assert viewer.renderer.mode == "blocks" and viewer.frame.background is not None
+        await send(pipe, "b", viewer, task)
+        assert viewer.renderer.mode == "detail" and viewer.frame.background is None
         await send(pipe, "u\x01\x0b200\r", viewer, task)
         assert viewer.windows[0].upper == 200
 
@@ -236,3 +243,49 @@ async def test_quit_waits_for_inflight_decode(mif, monkeypatch):
         pipe.send_text("q")
         await asyncio.wait_for(task, 5)
         assert finished.is_set() and source.is_open
+
+
+async def test_new_mode_cycle_keeps_windows_and_reuses_high_resolution_preview(mif):
+    async with running(mif[0]) as (viewer, pipe, _, task):
+        assert viewer.renderer.mode == "detail"
+        windows = tuple(viewer.windows)
+        samples = viewer.samples
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "shape"
+        assert viewer.samples is samples
+        assert tuple(viewer.windows) == windows
+        assert viewer.frame.background is None
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "simple"
+        assert viewer.samples.plan.sample_shape == (
+            viewer.canvas_size[1], viewer.canvas_size[0])
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "blocks"
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "detail"
+        assert tuple(viewer.windows) == windows
+
+
+async def test_monochrome_mode_cycle_and_blocks_roundtrip(mif):
+    async with running(mif[0]) as (viewer, pipe, _, task):
+        await send(pipe, "t", viewer, task)
+        assert not viewer.renderer.color and viewer.renderer.mode == "detail"
+        for expected in ("shape", "simple", "detail"):
+            await send(pipe, "m", viewer, task)
+            assert viewer.renderer.mode == expected and not viewer.renderer.color
+            assert viewer.frame.foreground is viewer.frame.background is None
+        await send(pipe, "b", viewer, task)
+        assert viewer.renderer.mode == "blocks" and viewer.renderer.color
+        await send(pipe, "b", viewer, task)
+        assert viewer.renderer.mode == "detail" and not viewer.renderer.color
+
+
+async def test_custom_simple_ramp_survives_other_render_modes(mif):
+    from ttwhy import TextRenderer
+
+    renderer = TextRenderer(mode="simple", ramp=" .#", color=False)
+    async with running(mif[0], renderer=renderer) as (viewer, pipe, _, task):
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "detail"
+        await send(pipe, "mm", viewer, task)
+        assert viewer.renderer.mode == "simple" and viewer.renderer.ramp == " .#"
