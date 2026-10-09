@@ -217,14 +217,15 @@ def test_cli_modes_real_tiff_snapshot(mode, ansi, mif):
     assert '48;2;' not in result.stdout
 
 
-def test_cli_default_is_detail(mif):
+def test_cli_default_is_plain_auto_and_detail_is_explicit(mif):
     args = [str(mif[0]), '--snapshot', '--columns', '25', '--rows', '11']
     runner = CliRunner()
     default = runner.invoke(main, args)
-    explicit = runner.invoke(main, [*args, '--mode', 'detail'])
-    assert default.exit_code == explicit.exit_code == 0
-    assert default.stdout == explicit.stdout
-    assert any(0x2801 <= ord(char) <= 0x28ff for char in default.stdout)
+    simple = runner.invoke(main, [*args, '--mode', 'simple'])
+    detail = runner.invoke(main, [*args, '--mode', 'detail'])
+    assert default.exit_code == simple.exit_code == detail.exit_code == 0
+    assert default.stdout == simple.stdout
+    assert any(0x2801 <= ord(char) <= 0x28ff for char in detail.stdout)
 
 
 def test_python311_grammar_not_a_runtime_substitute():

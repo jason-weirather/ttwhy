@@ -104,3 +104,30 @@ def test_file_output_preflight_runs_before_decode(mif, tmp_path, monkeypatch):
     out.write_text("untouched")
     result = CliRunner().invoke(main, [str(mif[0]), "--snapshot", "-o", str(out), "--no-overwrite"])
     assert result.exit_code != 0 and "already exists" in result.output
+
+
+def test_auto_plain_snapshot_keeps_legacy_text(mif):
+    runner = CliRunner()
+    args = [str(mif[0]), "--snapshot", "--columns", "33", "--rows", "11"]
+    default = runner.invoke(main, args)
+    explicit_auto = runner.invoke(main, [*args, "--mode", "auto"])
+    simple = runner.invoke(main, [*args, "--mode", "simple"])
+    assert default.exit_code == explicit_auto.exit_code == simple.exit_code == 0
+    assert default.stdout == explicit_auto.stdout == simple.stdout
+    assert "\x1b" not in default.stdout
+
+
+def test_auto_ansi_snapshot_uses_color_blocks(mif):
+    runner = CliRunner()
+    args = [str(mif[0]), "--snapshot", "--ansi", "--columns", "20", "--rows", "9"]
+    auto = runner.invoke(main, args)
+    explicit = runner.invoke(main, [*args, "--mode", "blocks"])
+    assert auto.exit_code == explicit.exit_code == 0
+    assert auto.stdout == explicit.stdout
+    assert "▀" in auto.stdout
+    assert "48;2;" in auto.stdout
+    no_color = runner.invoke(main, [*args, "--no-color"])
+    simple = runner.invoke(main, [*args, "--mode", "simple", "--no-color"])
+    assert no_color.exit_code == simple.exit_code == 0
+    assert no_color.stdout == simple.stdout
+    assert "\x1b" not in no_color.stdout

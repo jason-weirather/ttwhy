@@ -3,9 +3,10 @@
 A whole slide pathology image viewer in text; because sometimes the answer to “why is this in the terminal?” is “yes.”
 
 `ttwhy` is a library-first image-to-text renderer and a full-screen OME-TIFF viewer.
-The default is foreground-only **detail** rendering with spatial Unicode Braille.
-**Shape** emphasizes typographic strokes and texture; **simple** retains the original
-ASCII density art. Optional **blocks** retain two RGB samples per terminal cell.
+The CLI defaults to **auto**: two-color Unicode half-blocks when the terminal
+supports them, otherwise portable **simple** ASCII. **Detail** uses spatial Braille;
+**shape** emphasizes typographic strokes and texture. Explicit **blocks** remains
+available, and the array renderer's library default remains detail.
 No terminal bitmap protocol, browser, image server, X11, or GPU is required.
 
 This is an early exploratory viewer, not a diagnostic display or a color-managed
@@ -41,8 +42,10 @@ inference, whole-slide pixel scans, or pyramid construction.
 ## Viewer
 
 ```bash
-ttwhy slide.ome.tif                       # detail, the new default
+ttwhy slide.ome.tif                       # auto: color half-blocks or simple fallback
+ttwhy slide.ome.tif --mode blocks         # force half-blocks
 ttwhy slide.ome.tif --mode shape          # curves, strokes, quieter shading
+ttwhy slide.ome.tif --mode detail         # spatial Braille
 ttwhy slide.ome.tif --mode simple         # unchanged legacy ASCII
 
 # Channel indices are zero-based. Repeating the option selects a composite.
@@ -89,14 +92,31 @@ indices shown in metadata or accepted by `--channel`.
 
 | Mode | Rendering behavior | Plain text / monochrome |
 |---|---|---|
-| `detail` (default) | Eight-dot Braille with local sharpening, tone-balanced dot counts, and spatial dot placement. | Yes, UTF-8 Unicode. |
+| `auto` (CLI default) | Half-blocks on Unicode-capable terminals with 256 or truecolor support; otherwise simple. | Plain snapshots: simple; `--ansi` snapshots: blocks. |
+| `detail` | Eight-dot Braille with local sharpening, tone-balanced dot counts, and spatial dot placement. | Yes, UTF-8 Unicode. |
 | `shape` | Canonical stroke matching with curves, diagonals, punctuation, letters, and subdued tonal fills. | Yes, UTF-8 Unicode. |
 | `simple` | Original ` .:-=+*#%@` brightness ramp and original colored-ASCII semantics. | Yes, ASCII. |
 | `blocks` | Original upper/lower RGB half-block display. | Requires color; snapshots require `--ansi`. |
 
+`--mode auto` is resolved by the CLI before constructing `TextRenderer`. For
+interactive viewing it honors `NO_COLOR`, `PROMPT_TOOLKIT_COLOR_DEPTH`, and
+`COLORTERM` (using prompt_toolkit's own default color depth otherwise). It chooses
+blocks only with a TTY, an encoding that supports `▀`, and at least 256 colors.
+256-color terminals approximate the two RGB colors; truecolor terminals reproduce
+them more faithfully. TERM=dumb/unknown, limited color depth, or an unsupported
+encoding selects `simple`. The terminal cannot reliably report installed glyphs;
+if your font lacks `▀`, explicitly choose `--mode simple`. No active terminal
+probes are sent. Explicit `--mode blocks` overrides the heuristic.
+
+In snapshots, plain `--snapshot` with auto produces **simple** text, while
+`--snapshot --ansi` with auto produces truecolor blocks. Explicit `--no-color`
+with auto chooses simple in both paths. Explicit modes remain unchanged.
+
 `--mode ascii` remains an alias for `simple`, including in `TextRenderer`.
 The canonical `renderer.mode` value for that alias is `"simple"`. Custom Python
 `ramp=` values belong to `simple`; the structured modes have their own vocabulary.
+The library's `TextRenderer()` default stays `detail` because it has no terminal
+context and should not depend on environment variables.
 
 Detail and shape both retain **8 rows by 4 columns of display samples per terminal
 cell**, instead of collapsing its shape into one average intensity. Detail groups
@@ -156,8 +176,8 @@ inversion has no effect on half-block colors. `--no-color` uses the strongest
 selected signal for a monochrome text view in the selected text mode.
 
 Truecolor is enabled when `COLORTERM` is `truecolor` or `24bit`. An explicit
-`PROMPT_TOOLKIT_COLOR_DEPTH` takes precedence; otherwise prompt_toolkit selects its
-terminal fallback, usually 256 colors. `--ansi` snapshots always encode 24-bit SGR.
+`PROMPT_TOOLKIT_COLOR_DEPTH` takes precedence; `NO_COLOR` disables it. Otherwise
+prompt_toolkit selects its terminal fallback, usually 256 colors. `--ansi` snapshots always encode 24-bit SGR.
 Some terminals or SSH/tmux configurations need their mouse/color forwarding enabled.
 For tmux, enable its mouse handling with `set -g mouse on`; key controls remain
 available when wheel or drag events are intercepted elsewhere. tmux itself is not
@@ -169,7 +189,9 @@ The noninteractive path uses the same planning, sampling, composition, and rende
 operations as the viewer. It never enters the alternate screen.
 
 ```bash
-ttwhy slide.ome.tif --snapshot --columns 120 --rows 40
+ttwhy slide.ome.tif --snapshot --columns 120 --rows 40  # auto: plain simple text
+
+ttwhy slide.ome.tif --snapshot --ansi -o preview.ansi      # auto: truecolor blocks
 
 ttwhy slide.ome.tif --snapshot --mode shape --no-color -o shape.txt
 

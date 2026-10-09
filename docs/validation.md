@@ -156,3 +156,16 @@ appearance and must not be interpreted as segmentation or quantitative evidence.
 The ordered pattern is deterministic but screen-grid anchored, so panning can
 still change its texture. Both structured modes may need finer pyramid reads and
 therefore a tighter initial crop under the same source-read budget.
+
+## Auto terminal renderer selection (October 2026)
+
+Against the supplied ttwhy `1679265` snapshot, this change makes **auto** the CLI
+mode default without editing the original rendering algorithms. Interactive
+truecolor/256-color Unicode terminals select blocks. Low-depth, dumb, or
+unsupported-encoding terminals select simple. Explicit modes remain available;
+`NO_COLOR` and prompt_toolkit's color-depth override are honored. Plain auto
+snapshots select simple, while `--ansi` auto snapshots select blocks.
+
+The selection is based on advertised terminal capabilities, not a font probe.
+Quarter/block-character experiments remain future work. The Python library's
+`TextRenderer()` default is still detail, unaffected by environment variables.

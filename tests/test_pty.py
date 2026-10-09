@@ -62,3 +62,30 @@ def test_terminal_interrupt_restores_screen(mif, mode):
         terminal.close(force=True)
     assert terminal.exitstatus == 0
     assert "\x1b[?1049l" in transcript.getvalue()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX pseudo-terminal test")
+@pytest.mark.parametrize("mode_env,expected", [
+    ({"COLORTERM": "truecolor"}, "blocks"),
+    ({"PROMPT_TOOLKIT_COLOR_DEPTH": "DEPTH_8_BIT"}, "blocks"),
+    ({"PROMPT_TOOLKIT_COLOR_DEPTH": "DEPTH_4_BIT"}, "simple"),
+    ({"NO_COLOR": "1"}, "simple"),
+])
+def test_real_cli_auto_selects_terminal_renderer(mif, mode_env, expected):
+    pexpect = pytest.importorskip("pexpect")
+    env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "",
+           "PROMPT_TOOLKIT_COLOR_DEPTH": "", "NO_COLOR": "", **mode_env}
+    # NO_COLOR='' is not active; remove inherited overrides so each case is isolated.
+    env = {k: v for k, v in env.items() if v != '' or k not in
+           {"NO_COLOR", "COLORTERM", "PROMPT_TOOLKIT_COLOR_DEPTH"}}
+    terminal = pexpect.spawn(
+        sys.executable, ["-m", "ttwhy", str(mif[0])], encoding="utf-8", timeout=15,
+        dimensions=(20, 80), env=env,
+    )
+    try:
+        terminal.expect(f"\\| {expected} ")
+        terminal.send("q")
+        terminal.expect(pexpect.EOF)
+    finally:
+        terminal.close(force=True)
+    assert terminal.exitstatus == 0

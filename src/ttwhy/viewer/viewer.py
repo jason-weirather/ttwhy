@@ -1,7 +1,6 @@
 """A full-screen microscopy viewer with one coalescing render worker."""
 
 import asyncio
-import os
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -13,13 +12,14 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.input import Input
 from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.output import ColorDepth, Output
+from prompt_toolkit.output import Output
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import TextArea
 
 from ..intensity_window import IntensityWindow
 from ..view_info import ReadBudgetExceeded
 from ..text_image import TextImage
+from ..terminal_capabilities import configured_color_depth
 from ..text_renderer import DEFAULT_RAMP, RENDER_MODES, TEXT_MODES, TextRenderer
 from ..view_session import ViewSamples, ViewSession
 from ..viewport import Viewport
@@ -106,9 +106,7 @@ class Viewer:
             layout=Layout(container, focused_element=self.canvas),
             key_bindings=create_bindings(self), full_screen=True, mouse_support=True,
             input=input, output=output, min_redraw_interval=1 / 30,
-            color_depth=(ColorDepth.from_env() or
-                         (ColorDepth.DEPTH_24_BIT if os.environ.get("COLORTERM", "").lower()
-                          in {"truecolor", "24bit"} else None)),
+            color_depth=configured_color_depth(),
             style=Style.from_dict({
                 "image": "bg:#000000 #eeeeee", "title": "bg:#253247 #ffffff bold",
                 "panel": "bg:#141c29 #bdc8da", "panel.title": "#83d5c8 bold",

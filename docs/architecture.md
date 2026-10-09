@@ -96,6 +96,23 @@ settings. Color toggling preserves a text mode. Switching modes never requests a
 automatic contrast reset: existing per-channel windows stay locked. Detail and
 shape request identical sampling grids and share cached previews for a view.
 
+## Terminal capability policy
+
+The CLI's `--mode auto` is deliberately a *frontend policy*, not another glyph
+algorithm. `terminal_capabilities.py` chooses the original blocks renderer for
+interactive Unicode-capable terminals whose prompt_toolkit color depth is at
+least 256 colors, and simple for limited terminal/encoding capabilities or
+explicit no-color. The selector respects the same color-depth precedence as the
+viewer (`NO_COLOR`, `PROMPT_TOOLKIT_COLOR_DEPTH`, `COLORTERM`, toolkit default).
+No terminal escape sequence is sent to probe capability. Font coverage itself
+cannot be verified; users can always force a mode. The viewer status shows the
+resolved renderer rather than claiming a font was tested.
+
+Snapshots have a different output contract: auto + no ANSI emits portable simple
+text, while auto + explicit ANSI emits truecolor blocks. The array-level
+`TextRenderer` retains its context-independent `detail` default. Explicit modes,
+`sample_shape()`, and their numerical rendering are unaffected by auto selection.
+
 ## Thread and resource contract
 
 Keep the Omeify image and `ViewSession` contexts open for `Viewer.run()`. The viewer

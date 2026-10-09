@@ -11,6 +11,7 @@ from omeify import OMETiffReader
 
 from . import __version__
 from .intensity_window import IntensityWindow
+from .terminal_capabilities import available_color_depth, resolve_auto_mode
 from .text_renderer import RENDER_MODES, TextRenderer
 from .view_session import ViewSession
 from .viewport import Viewport
@@ -46,9 +47,9 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
               help="Lower display limit in raw intensity units; pair with --upper.")
 @click.option("--upper", type=float,
               help="Upper display limit in raw intensity units; pair with --lower.")
-@click.option("--mode", type=click.Choice([*RENDER_MODES, "ascii"]), default="detail",
-              help="detail: spatial Braille; shape: stroke art; simple/ascii: legacy density; "
-                   "blocks: legacy two-color half-blocks.")
+@click.option("--mode", type=click.Choice(["auto", *RENDER_MODES, "ascii"]), default="auto",
+              help="auto: colored half-blocks when supported, simple otherwise; "
+                   "detail/shape: text art; simple/ascii: legacy density; blocks: half-blocks.")
 @click.option("--color/--no-color", default=None,
               help="Use RGB/pseudocolor (auto: on in the viewer, off for plain snapshots).")
 @click.option("--invert/--no-invert", default=None,
@@ -109,6 +110,14 @@ def main(
                 raise FileExistsError(f"Snapshot destination already exists: {output_path}")
             if not output_path.parent.is_dir():
                 raise FileNotFoundError(f"Output directory does not exist: {output_path.parent}")
+        use_color = (not snapshot or ansi) if color is None else color
+        if mode == "auto":
+            mode = resolve_auto_mode(
+                snapshot=snapshot, ansi=ansi, color=use_color,
+                is_tty=sys.stdout.isatty(), encoding=sys.stdout.encoding,
+                term=os.environ.get("TERM"),
+                depth=None if snapshot else available_color_depth(),
+            )
         window = None if lower is None else IntensityWindow(lower, upper)
         viewport = None if region is None else Viewport(*region)
         with (
@@ -118,7 +127,7 @@ def main(
         ):
             selected = session._select_channels(channels)
             renderer = TextRenderer(
-                mode=mode, color=(not snapshot or ansi) if color is None else color,
+                mode=mode, color=use_color,
                 invert=session.info.is_rgb if invert is None else invert, cell_aspect=cell_aspect,
             )
             if snapshot:
