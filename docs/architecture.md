@@ -59,7 +59,7 @@ to the original observation. Closing the display does not close the caller's ima
 A session rejects access after its source is closed and reopened, including cache hits.
 
 The provider's cache is cleared on channel/level switches. No independent channel
-cache is assumed in Omeify 0.18; providers own their cache implementation. ttwhy's own preview LRU can retain multiple selections and viewports.
+cache is assumed in Omeify 0.21.0; providers own their cache implementation. ttwhy's own preview LRU can retain multiple selections and viewports.
 Changing intensity windows does not change preview-cache keys.
 
 There is no on-disk cache or implicitly written user configuration. Errors do not

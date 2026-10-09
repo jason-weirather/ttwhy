@@ -13,21 +13,24 @@ checks, not pixel measurements from the rendered text.
 
 ## Install
 
-Python 3.13 or newer is required. Start in an environment containing a compatible
-Omeify release. ttwhy 0.2 uses **Omeify 0.18** and requires
-`omeify>=0.18,<0.19`; it does not vendor its code.
+Python **3.11 or newer** is required. ttwhy 0.2 requires **Omeify 0.21.0 or newer**
+(`omeify>=0.21.0`). It uses Omeify's public image API and does not vendor its code.
+The standard installation obtains Omeify from PyPI; a local Omeify checkout is not needed.
 
 ```bash
 mamba env create -f environment.yml
 mamba activate ttwhy_env
-
-# Install your Omeify checkout when it is not available from your package index.
-python -m pip install -e /path/to/omeify
 python -m pip install -e '.[dev]'
+python -m pip check
 
+omeify version
 ttwhy --version
 ttwhy slide.ome.tif
 ```
+
+The example environment uses Python 3.11 to exercise the supported minimum; newer
+Python versions are also supported. For the 0.21 transition and its validation limits,
+see [validation](docs/validation.md).
 
 Only NumPy, SciPy, Click, Omeify, prompt_toolkit, and wcwidth are direct runtime
 dependencies. The library's array-rendering operations do not import the terminal

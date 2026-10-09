@@ -62,3 +62,34 @@ macOS/Windows terminal, or actual SSH/tmux combination was tested. Source-sample
 and preview-cache budgets are not a process-RSS limit. A generic provider can
 perform expensive work internally, and decoded caching remains provider-owned.
 This is not a color-managed or diagnostic microscopy display.
+
+## Omeify 0.21.0 / Python 3.11 baseline (October 2026)
+
+The preceding validation record describes the historical Omeify 0.18 migration and
+its then-current Python 3.13 minimum. The packaging baseline is now
+`omeify>=0.21.0` and `requires-python = ">=3.11"`; the default Conda environment
+uses Python 3.11. No image sampling, rendering, or terminal interaction logic was
+changed for this transition. In particular, ttwhy still consumes Omeify's public
+`Image` and `OMETiffReader` APIs, without a second TIFF decoder.
+
+The complete ttwhy test suite was run against the **Omeify 0.21.0 source snapshot**
+(commit `6d9f5ff`) under Python 3.13.5: **108 passed, 2 warnings**. All ttwhy
+source, demo, and test modules also parse with Python 3.11 grammar. This is a
+source-level integration test, not verification of the separately published PyPI
+wheel or an executed Python 3.11 runtime test. A Python 3.11 interpreter was not
+available in the test environment.
+
+To validate the newly supported interpreter using the published dependency:
+
+```bash
+mamba env create -f environment.yml
+mamba activate ttwhy_env
+python -m pip install -e '.[dev]'
+python -m pip check
+python -c 'import sys, omeify; print(sys.version); print(omeify.__version__)'
+python -m pytest -q
+```
+
+Also smoke-test a real RGB and multiplex OME-TIFF, especially when the downstream
+TIFF codec and terminal combination differs from the synthetic fixtures. Python
+3.11 compatibility should not be called fully verified until this lane passes.
