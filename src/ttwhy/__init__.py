@@ -1,7 +1,8 @@
-"""Reusable pathology-to-text rendering. The terminal UI is imported separately."""
+"""Reusable image-to-text rendering. The terminal UI is imported separately."""
 
 from ._version import resolve_version
 from .compositing import ChannelStyle, compose_channels
+from .image_input import open_image
 from .intensity_window import IntensityWindow, estimate_window
 from .view_info import ReadBudgetExceeded
 from .resampling import resample_image
@@ -15,5 +16,5 @@ __version__ = resolve_version()
 __all__ = [
     "ChannelStyle", "IntensityWindow", "ReadBudgetExceeded",
     "TextImage", "TextRenderer", "ViewSession", "Viewport", "__version__",
-    "compose_channels", "estimate_window", "resample_image",
+    "compose_channels", "estimate_window", "open_image", "resample_image",
 ]

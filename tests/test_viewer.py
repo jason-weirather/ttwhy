@@ -12,7 +12,7 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from omeify import OMETiffReader
-from ttwhy import ViewSession
+from ttwhy import ViewSession, open_image
 from ttwhy.viewer import Viewer
 
 
@@ -43,7 +43,7 @@ async def ready(viewer, task):
 
 @asynccontextmanager
 async def running(path, **options):
-    with (OMETiffReader(path) as source, ViewSession(source) as session,
+    with (open_image(path) as source, ViewSession(source) as session,
           create_pipe_input() as pipe):
         viewer = Viewer(session, **options)
         output = SizedOutput()
@@ -289,3 +289,33 @@ async def test_custom_simple_ramp_survives_other_render_modes(mif):
         assert viewer.renderer.mode == "detail"
         await send(pipe, "mm", viewer, task)
         assert viewer.renderer.mode == "simple" and viewer.renderer.ramp == " .#"
+
+
+@pytest.mark.parametrize("kind", ["png", "pdf"])
+async def test_ordinary_image_and_pdf_use_same_zoom_pan_and_window_controls(tmp_path, kind):
+    from PIL import Image as PILImage
+    from test_image_input import write_pdf
+    from ttwhy import TextRenderer
+
+    path = tmp_path / f"interactive.{kind}"
+    if kind == "pdf":
+        pytest.importorskip("pypdfium2")
+        write_pdf(path)
+    else:
+        y, x = np.mgrid[:600, :800]
+        PILImage.fromarray(np.stack([x % 256, y % 256, (x+y) % 256], -1).astype(np.uint8)).save(path)
+    async with running(path, renderer=TextRenderer(mode="blocks")) as (viewer, pipe, _, task):
+        initial = viewer.viewport
+        assert viewer.samples.is_rgb and viewer.windows[0].upper == 255
+        await send(pipe, "\x1b[<64;20;10M", viewer, task)
+        assert viewer.viewport.width < initial.width
+        before_pan = viewer.viewport
+        await send(pipe, "\x1b[C", viewer, task)
+        assert viewer.viewport.x > before_pan.x
+        assert viewer.windows[0].upper == 255
+        await send(pipe, "u\x01\x0b200\r", viewer, task)
+        assert viewer.windows[0].upper == 200
+        await send(pipe, "mr", viewer, task)
+        assert viewer.renderer.mode == "detail"
+        assert viewer.windows[0].upper == 200
+        assert viewer.viewport.width == pytest.approx(initial.width)

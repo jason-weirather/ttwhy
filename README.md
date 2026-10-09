@@ -2,7 +2,8 @@
 
 A whole slide pathology image viewer in text; because sometimes the answer to “why is this in the terminal?” is “yes.”
 
-`ttwhy` is a library-first image-to-text renderer and a full-screen OME-TIFF viewer.
+`ttwhy` is a library-first image-to-text renderer and a full-screen viewer for
+OME-TIFF, ordinary raster images, and PDF pages.
 The CLI defaults to **auto**: two-color Unicode half-blocks when the terminal
 supports them, otherwise portable **simple** ASCII. **Detail** uses spatial Braille;
 **shape** emphasizes typographic strokes and texture. Explicit **blocks** remains
@@ -34,10 +35,94 @@ The example environment uses Python 3.11 to exercise the supported minimum; newe
 Python versions are also supported. For the 0.21 transition and its validation limits,
 see [validation](docs/validation.md).
 
-Only NumPy, SciPy, Click, Omeify, prompt_toolkit, and wcwidth are direct runtime
-dependencies. The library's array-rendering operations do not import the terminal
-frontend or open any files. File opening does not trigger conversion, model
-inference, whole-slide pixel scans, or pyramid construction.
+NumPy, SciPy, Click, Omeify, Pillow, prompt_toolkit, and wcwidth are direct runtime
+dependencies. PDF rendering is an optional extra:
+
+```bash
+python -m pip install -e '.[pdf]'           # checkout, including PDF support
+# Installed-package equivalent: python -m pip install 'ttwhy[pdf]'
+```
+
+Pillow supplies ordinary image codecs. The `pdf` extra adds pypdfium2, a Python
+binding with a native PDFium renderer. This is not a standard-library-only or
+all-pure-Python codec stack. There is no ImageMagick, Ghostscript, Poppler command,
+OpenCV, browser, or external conversion process. Decoders are imported only when
+used; array rendering does not import Pillow, PDFium, Omeify, or the terminal UI.
+OME-TIFF still opens regionally without a scan or pyramid build. Ordinary files
+explicitly take the eager, RAM-only path described below.
+
+## Ordinary images and PDF pages
+
+```bash
+ttwhy photograph.jpg
+ttwhy screenshot.png
+ttwhy illustration.webp
+ttwhy icon.png --background black          # transparent pixels default to white
+
+ttwhy document.pdf                         # first page, rasterized at 144 DPI
+ttwhy document.pdf --page 3                 # PDF pages are ONE-based
+ttwhy document.pdf --page 3 --pdf-dpi 300    # more base detail for closer zoom
+
+ttwhy animation.gif --frame 5               # raster frames are ZERO-based
+ttwhy illustration.webp --snapshot --ansi -o preview.ansi
+```
+
+These inputs share the existing wheel/keyboard zoom, pan, contrast, rendering
+modes, sidebar, and snapshot workflow. `auto` still chooses color half-blocks on
+capable terminals and simple text otherwise. There is no second viewer.
+
+| Input | Behavior in this pass |
+|---|---|
+| OME-TIFF | Existing Omeify reader, stored levels, and regional decoding, unchanged. |
+| PNG, JPEG/JPG, WebP, BMP, TGA | Decode once; retain the base raster and an in-memory pyramid. |
+| GIF, APNG, animated WebP | Frame 0 by default, or select `--frame N`; no animation playback. |
+| ICO | View the decoder's default icon representation. |
+| PPM, PGM, PBM | Ordinary portable raster formats through Pillow. |
+| PDF, with `ttwhy[pdf]` | One selected page rasterized to RGB, then the same in-memory pyramid. |
+
+File content determines the reader, not the extension alone. Unsupported formats
+fail explicitly. **Non-OME TIFF, SVG, EPS/PostScript, HEIC/AVIF, JPEG 2000, and raw
+camera formats are deferred.** In particular, an OME-TIFF error never falls
+through to Pillow, and no EPS plugin may invoke an external converter.
+
+Ordinary RGB, palette, CMYK, bilevel, and 8-bit grayscale images become one RGB
+logical channel. EXIF orientation is applied before constructing the pyramid.
+Alpha and palette/color-key transparency are composited onto white, or black
+with `--background black`, before downsampling. The terminal's letterbox remains
+black; this option changes the image matte, not the terminal theme. Basic CMYK
+conversion is not ICC-managed color. RGB previews use Pillow's decoded 8-bit
+samples, including for higher-bit-depth RGB PNGs; this is not a lossless export
+or a color-managed workstation. Scalar 16-bit PNG values are retained as uint16,
+with the existing intensity-channel contrast controls rather than clipping to 255.
+
+**PDF zoom is bounded by the chosen opening resolution.** A PDF is rendered only
+once at startup, not re-rendered as vectors on every zoom. Increase `--pdf-dpi`
+when more detail is useful. Only the selected page gets a raster and pyramid;
+there is no in-app page switching, text selection/search, password entry, or PDF
+editing. Page rotation, rendered annotations, and available form appearances are
+included, but the viewer is not an interactive PDF forms application. The title
+identifies the selected page and raster DPI. PDF DPI does not invent microscopy
+calibration. To view another page, reopen with `--page`; `--series` remains the
+OME-TIFF selector, and `--frame` is the raster-frame selector.
+
+### RAM-only overviews
+
+An ordinary image's decoded base pixels are retained at full resolution. NumPy
+builds 2x, 4x, 8x, ... area-mean levels through 1x1, with explicit scale factors.
+Partial odd-sized edges use only their real pixel support. Sums/counts are carried
+before rounding, so successive levels do not amplify rounding or overweight a
+partial edge. Integer overview samples are rounded back to their source dtype.
+Zooming in returns to the original decoded base, not an enlarged thumbnail.
+
+For typical two-dimensional images the retained pyramid is approximately **4/3
+of the base raster bytes**; very skinny images can approach twice the base.
+Decoding, copies, float64 sum/count scratch, and display previews add to peak RAM.
+Neither `--cache-mib` nor `--max-read-pixels` caps this initial decode/build or the
+retained pyramid. They still govern the session's preview cache and per-view
+reads. Pillow's large-image safeguards remain enabled; they are not globally
+disabled. PDF native dimension limits and allocation errors remain errors rather
+than silently reducing the requested DPI. No intermediate image, pyramid file,
+or disk cache is written. Only an explicitly requested snapshot creates output.
 
 ## Viewer
 
@@ -242,11 +327,10 @@ and `compose_channels` are independently usable public functions.
 ### Read and render a field of view
 
 ```python
-from omeify import OMETiffReader
-from ttwhy import TextRenderer, ViewSession
+from ttwhy import TextRenderer, ViewSession, open_image
 
 with (
-    OMETiffReader("multiplex.ome.tif") as image,
+    open_image("multiplex.ome.tif") as image,
     ViewSession(image, name="Multiplex", cache_mib=32) as session,
 ):
     renderer = TextRenderer(mode="detail", color=True)
@@ -263,6 +347,14 @@ with (
     print(frame.to_text(ansi=True))
     print(f"Bounded crop instead of whole image: {limited}")
 ```
+
+`open_image("photo.png")`, `open_image("document.pdf", page=3, pdf_dpi=300)`,
+and `open_image("animation.gif", frame=2)` yield the same open Omeify Image
+contract. Ordinary files have only logical channel 0; use `channels=[0]` for the
+example above. `open_image` closes its yielded image on context exit, after the
+session has closed. As with other Omeify array images, retaining references to a
+closed array-backed image retains its pixels; release those references to free
+its RAM. Opening an image does not itself import the terminal UI.
 
 A `Viewport(x, y, width, height)` uses **base-image pixel-edge coordinates**.
 `pan()` and `zoom()` return new viewports. A source's `read_region()` instead uses
@@ -295,10 +387,12 @@ For embedding a frontend, `from ttwhy.viewer import Viewer` provides
 
 ## Image-backed Python use (0.2)
 
-The former ttwhy `OmeTiffSource` class is removed. Omeify owns image origins;
-`ViewSession(image)` owns bounded display. There is one sampling/rendering path,
-not a file path and a separate simulator path. `max_read_pixels=` now belongs to
-the session. The CLI retains its options and controls.
+The former ttwhy `OmeTiffSource` class is removed. Omeify owns the Image/source
+contract and TIFF interpretation; `open_image()` is a small file-ingress helper
+that also decodes ordinary inputs into Omeify array images. `ViewSession(image)`
+owns bounded display. There is one sampling/rendering path, not a file path and
+a separate simulator path. `max_read_pixels=` belongs to the session. The CLI
+retains its original options and controls.
 
 ```python
 # With an already rendered Mocktome mIF product:
@@ -327,11 +421,12 @@ this release does not add a graphical notebook widget.
 
 ## Bounded reads and caching
 
-The source boundary is Omeify. ttwhy never reads TIFF pages through a second decoder,
-parses competing OME metadata, or runs Omeify's conversion/mutation commands.
-Stored pyramid levels are selected according to the display sampling footprint.
-Only a clipped, intersecting source region is requested. Those source tiles are
-decoded by Omeify. Separable area averaging reduces the bounded rectangle to the
+The regional source boundary remains Omeify. ttwhy never reads TIFF pages through
+a second decoder, parses competing OME metadata, or runs Omeify's conversion or
+mutation commands. The session selects from the source's supplied levels, whether
+stored TIFF levels or the explicit RAM pyramid created for an ordinary input.
+Only a clipped, intersecting source region is requested. TIFF tiles are decoded
+by Omeify; an ordinary array-backed source returns a region of its RAM raster. Separable area averaging reduces the bounded rectangle to the
 terminal sampling grid, including fractional camera positions and letterboxing.
 Raw preview means use float64 so narrow windows on uint32 data survive resampling.
 
@@ -354,23 +449,25 @@ frame presented as a successful new view.
 
 `--max-read-pixels` defaults to 4,194,304 source samples **per request**, counting
 selected channels and all RGB samples. Requests exceeding it are rejected before
-pixel reads. A large file with no useful coarse pyramid cannot provide a cheap,
-faithful overview. Initial fit then shows an explicitly labeled bounded center crop;
+pixel reads. An OME-TIFF or externally supplied image with no useful coarse pyramid cannot
+provide a cheap, faithful overview. Initial fit then shows an explicitly labeled bounded center crop;
 zooming farther out is rejected rather than silently reading a huge image.
-No automatic pyramid construction or sparse fake overview is substituted.
+`ViewSession` itself never constructs a pyramid or substitutes a sparse fake
+overview. RAM pyramids belong only to the explicit ordinary-file ingress path.
 
 This sample-count budget and the preview cache size are **not a process-RSS cap**.
 Decoder buffers, masks, area-averaging intermediates, metadata, and terminal output
 also use memory. Omeify's per-plane decoded cache targets 64 MiB, but one oversized
 source strip or tile can exceed that target. A poorly tiled source can still be slow.
 
-## Scope of this initial version
+## Current scope
 
-The CLI supports tiled or striped **OME-TIFF**, including stored SubIFD pyramids,
-grayscale, RGB, and planar multi-marker images. Python sessions accept an open
-Omeify intensity or RGB Image, including array and procedural backends. One OME
-series is viewed per CLI application;
-choose another at startup with `--series`. Non-singleton Z/T stacks, label-specific
+The CLI supports the ordinary image and PDF formats listed above, plus tiled or
+striped **OME-TIFF**, including stored SubIFD pyramids, grayscale, RGB, and planar
+multi-marker images. Python sessions accept an open Omeify intensity or RGB Image,
+including array and procedural backends. One OME series, raster frame, or PDF page
+is viewed per CLI application; choose it at startup with `--series`, `--frame`, or
+`--page`, respectively. Non-singleton Z/T stacks, label-specific
 categorical coloring, in-app series switching, raw vendor formats, OME-Zarr, remote
 URLs, annotations, segmentation overlays, saved view settings, custom colors in
 the sidebar, and ICC-managed color are not implemented. Explicit categorical LabelImages are rejected rather than assigning continuous
@@ -387,6 +484,7 @@ python examples/make_demo.py --output-directory /tmp/ttwhy-demo
 ttwhy /tmp/ttwhy-demo/synthetic-rgb.ome.tif
 ttwhy /tmp/ttwhy-demo/synthetic-mif.ome.tif --channel 0 --channel 2
 
+python -m pip install -e '.[dev,pdf]'       # include optional PDF integration tests
 python -m pytest --cov=ttwhy --cov-report=term-missing
 ruff check .
 python -m build

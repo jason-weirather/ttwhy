@@ -7,9 +7,9 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import click
-from omeify import OMETiffReader
 
 from . import __version__
+from .image_input import DEFAULT_PDF_DPI, image_kind, open_image
 from .intensity_window import IntensityWindow
 from .terminal_capabilities import available_color_depth, resolve_auto_mode
 from .text_renderer import RENDER_MODES, TextRenderer
@@ -41,6 +41,14 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
 @click.version_option(__version__)
 @click.option("--series", type=click.IntRange(min=0), default=0,
               help="Zero-based OME image series; one series is displayed at a time.")
+@click.option("--page", type=click.IntRange(min=1),
+              help="One-based PDF page to display (default: 1).")
+@click.option("--frame", "frame_index", type=click.IntRange(min=0),
+              help="Zero-based raster frame, for GIF/APNG/WebP (default: 0; no playback).")
+@click.option("--pdf-dpi", type=click.FloatRange(min=0, min_open=True),
+              help="PDF raster resolution at opening (default: 144 DPI); zoom reuses this raster.")
+@click.option("--background", type=click.Choice(["white", "black"]),
+              help="Matte for raster transparency and PDF pages (default: white).")
 @click.option("--channel", "channels", type=click.IntRange(min=0), multiple=True, default=(0,),
               help="Zero-based logical channel. Repeat to composite multiple markers.")
 @click.option("--lower", type=float,
@@ -73,13 +81,14 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
 @click.option("--no-overwrite", is_flag=True,
               help="Refuse to replace an existing snapshot destination.")
 def main(
-    input_path: Path, series: int, channels: tuple[int, ...], lower: float | None,
+    input_path: Path, series: int, page: int | None, frame_index: int | None,
+    pdf_dpi: float | None, background: str | None, channels: tuple[int, ...], lower: float | None,
     upper: float | None, mode: str, color: bool | None, invert: bool | None,
     cell_aspect: float, region: tuple[float, ...] | None, cache_mib: float,
     max_read_pixels: int, snapshot: bool, columns: int, rows: int, ansi: bool,
     output_path: Path | None, no_overwrite: bool,
 ) -> None:
-    """Explore a pyramidal OME-TIFF as text, because sometimes the answer is yes.
+    """Explore OME-TIFF, ordinary images, or a PDF page as zoomable terminal text.
 
     Wheel/+/- zoom, arrows or mouse drag pan, c toggles the channel panel.
     l/u/g edit limits and gamma; m cycles render modes; b toggles blocks; ? shows help.
@@ -120,9 +129,21 @@ def main(
             )
         window = None if lower is None else IntensityWindow(lower, upper)
         viewport = None if region is None else Viewport(*region)
+        kind = image_kind(input_path)
+        name = input_path.name
+        if kind == "tiff":
+            name += f" | series {series}"
+        elif kind == "pdf":
+            dpi = DEFAULT_PDF_DPI if pdf_dpi is None else pdf_dpi
+            name += f" | page {page or 1} | {dpi:g} DPI raster"
+        elif frame_index is not None:
+            name += f" | frame {frame_index} (0-based)"
+        matte = None if background is None else ((255, 255, 255) if background == "white"
+                                                else (0, 0, 0))
         with (
-            OMETiffReader(input_path, series=series) as image,
-            ViewSession(image, name=f"{input_path.name} | series {series}",
+            open_image(input_path, series=series, page=page, frame=frame_index,
+                       pdf_dpi=pdf_dpi, background=matte) as image,
+            ViewSession(image, name=name,
                         cache_mib=cache_mib, max_read_pixels=max_read_pixels) as session,
         ):
             selected = session._select_channels(channels)
@@ -136,7 +157,7 @@ def main(
                                                     channels=selected)
                     if limited:
                         click.echo(
-                            "Read budget: rendering a bounded center crop, not the whole slide.",
+                            "Read budget: rendering a bounded center crop, not the whole image.",
                             err=True,
                         )
                 sample_rows, sample_columns = renderer.sample_shape(columns=columns, rows=rows)
@@ -159,5 +180,10 @@ def main(
 
                 asyncio.run(Viewer(session, channels=selected, window=window, renderer=renderer,
                                    viewport=viewport).run())
+    except MemoryError as error:
+        raise click.ClickException(
+            "Not enough RAM to open/render this image. Ordinary images retain a decoded "
+            "raster and pyramid; for PDF, try a lower --pdf-dpi."
+        ) from error
     except (ValueError, LookupError, OSError, RuntimeError, EOFError) as error:
         raise click.ClickException(str(error)) from error

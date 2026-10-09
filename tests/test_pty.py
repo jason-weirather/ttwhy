@@ -89,3 +89,40 @@ def test_real_cli_auto_selects_terminal_renderer(mif, mode_env, expected):
     finally:
         terminal.close(force=True)
     assert terminal.exitstatus == 0
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX pseudo-terminal test")
+@pytest.mark.parametrize("kind", ["png", "pdf"])
+def test_new_file_formats_real_cli_auto_zoom_and_terminal_restoration(tmp_path, kind):
+    import numpy as np
+    from PIL import Image as PILImage
+    from test_image_input import write_pdf
+
+    pexpect = pytest.importorskip("pexpect")
+    path = tmp_path / f"terminal.{kind}"
+    if kind == "pdf":
+        pytest.importorskip("pypdfium2")
+        write_pdf(path)
+    else:
+        y, x = np.mgrid[:120, :160]
+        PILImage.fromarray(np.stack([x, y, x+y], -1).astype(np.uint8)).save(path)
+    env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
+    env.pop("NO_COLOR", None)
+    env.pop("PROMPT_TOOLKIT_COLOR_DEPTH", None)
+    terminal = pexpect.spawn(sys.executable, ["-m", "ttwhy", str(path)], encoding="utf-8",
+                             dimensions=(24, 100), env=env, timeout=15)
+    transcript = io.StringIO()
+    terminal.logfile_read = transcript
+    try:
+        terminal.expect(r"\| blocks ")
+        terminal.send("+\x1b[<64;20;10M\x1b[C")
+        time.sleep(.2)
+        terminal.send("q")
+        terminal.expect(pexpect.EOF)
+    finally:
+        terminal.close(force=True)
+    assert terminal.exitstatus == 0
+    output = transcript.getvalue()
+    assert "Traceback" not in output and "▀" in output
+    assert "\x1b[?1049h" in output and "\x1b[?1049l" in output
+    assert "\x1b[?1006l" in output and "\x1b[?25h" in output

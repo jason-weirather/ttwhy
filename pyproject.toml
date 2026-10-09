@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ttwhy"
 version = "0.2.0"
-description = "Tiled microscopy in a terminal, with a reusable image-to-text engine"
+description = "Zoomable microscopy, image and PDF previews in a text terminal"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -16,11 +16,13 @@ dependencies = [
     "numpy>=2.1,<3",
     "scipy>=1.14,<2",
     "omeify>=0.21.0",
+    "pillow>=11.3,<13",
     "prompt-toolkit>=3.0.52,<4",
     "wcwidth>=0.2.13",
 ]
 
 [project.optional-dependencies]
+pdf = ["pypdfium2>=4.30,<6"]
 dev = [
     "pytest>=8,<10",
     "pytest-asyncio>=0.24",

@@ -169,3 +169,86 @@ snapshots select simple, while `--ansi` auto snapshots select blocks.
 The selection is based on advertised terminal capabilities, not a font probe.
 Quarter/block-character experiments remain future work. The Python library's
 `TextRenderer()` default is still detail, unaffected by environment variables.
+
+## Ordinary raster and optional PDF ingress (October 2026)
+
+This patch targets the supplied ttwhy `aec704f348cfe2b8a418f627a14e3e1ddf11a819`
+snapshot. Python >=3.11, Omeify >=0.21.0, package version 0.2.0, and all rendering
+algorithms remain unchanged. Pillow is a new base dependency; the optional `pdf`
+extra adds pypdfium2. Ordinary files enter through Omeify's public array-image API,
+not an alternative ViewSession or TIFF decoder.
+
+### Executed checks
+
+**281 tests passed**: 271 non-PTY tests and 10 POSIX pseudo-terminal tests, with
+**94% reported statement coverage** across the combined runs. This includes all
+188 baseline tests. The 10 forkpty deprecation warnings came from the terminal
+harness under Python 3.13; they were not failures. Coverage does not instrument
+the separately spawned terminal subprocesses, which have their own output and
+restoration assertions.
+
+The test environment was Linux, Python 3.13.5, NumPy 2.3.5, SciPy 1.17.0,
+Pillow 12.3.0, pypdfium2 5.8.0, and tifffile 2026.5.15. Integration used the actual
+Omeify 0.21.0 source (`6d9f5ff`) reconstructed from its repository snapshot. It
+was not replaced by mocked Image/TIFF implementations or a local API imitation.
+This does not verify the separately published Omeify wheel.
+
+New checks cover actual PNG, JPEG, WebP, BMP, GIF, ICO, PPM and TGA codecs;
+GIF/APNG/WebP frame selection; palette, alpha and grayscale transparency;
+bilevel, grayscale and CMYK display; EXIF orientation; scalar 16-bit PNG precision;
+RGB logical-channel/window semantics; filename-independent dispatch; missing
+PDF extras; invalid cross-kind options; input/hard-link overwrite protection;
+Pillow's large-image guard; and rejection of unsupported inputs without external
+converter execution. A roughly 3.8-megapixel RGB PNG fits using its RAM pyramid
+under a 60,000-sample per-view budget, then returns exact base pixels on zoom.
+
+Pyramid levels are compared independently with area means taken directly from
+base-array rectangles across integer/float, odd, skinny and RGB shapes. Tests
+explicitly check finite/missing samples, partial-edge weighting, unchanged base
+pixels, immutable ownership, explicit dyadic scales, and nonaccumulating integer
+rounding. TIFF inputs are checked not to call Pillow or construct RAM pyramids.
+
+PDF fixtures are independently assembled vector documents with the standard
+library, not written by the decoder under test. Tests exercise page selection,
+rotation, opaque mattes, RGB rather than BGR, real rasterization at 72/144/300 DPI,
+owned pixel lifetime after native handles close, malformed PDFs, invalid pages,
+excessive native dimensions, and snapshots. Both PNG and PDF were driven through
+the actual prompt_toolkit application and through real CLI pseudo-terminals,
+including zoom/pan, contrast, automatic half-block selection, and restored
+alternate-screen, mouse, and cursor state on exit.
+
+Visual checks used a local sample photograph encoded as PNG/JPEG/WebP and placed
+in a generated PDF page. The actual TextImage half-block foreground/background
+colors were rasterized and inspected at a shared 100-column budget. These were
+cell-color reconstructions, not screenshots of a physical terminal emulator.
+The photograph, generated PDF, inspection images and local fonts are not included
+in the patch or package.
+
+### Scope and remaining checks
+
+The full source and tests parse with Python 3.11 grammar. Wheel and sdist builds
+were checked with the installed setuptools backend. The array renderer was
+exercised under an import guard that prohibits file-decoder and terminal imports.
+No converter executable, GUI, display server, GPU, or disk image cache is needed.
+
+A Python 3.11 runtime, minimum-version Pillow/PDFium combinations, macOS/Windows
+terminals, SSH/tmux combinations, large production slides, and every PDF feature
+were not exercised. Ruff was unavailable in this environment. Pillow builds
+without WebP support skip the WebP codec tests; this test environment supported
+WebP and executed them. Optional PDF integration tests skip without `ttwhy[pdf]`;
+they were installed and executed here. To run both lanes in a checkout:
+
+```bash
+python -m pip install -e '.[dev,pdf]'
+python -m pytest --cov=ttwhy --cov-report=term-missing
+ruff check .
+python -m build
+```
+
+Pillow remains the ordinary image decoder, with its supported sample depths and
+large-image protection. Higher-bit-depth RGB previews can be reduced to RGB8;
+scalar 16-bit PNG keeps raw uint16. PDF pages are fixed-resolution raster previews,
+not a text/search interface or unbounded vector zoom. Native PDFium calls within
+ttwhy are serialized; direct PDFium use elsewhere in an embedding application
+must coordinate separately. RAM storage follows Omeify's array ownership policy
+and is not governed by the per-view source-sample budget.

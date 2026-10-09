@@ -19,12 +19,17 @@ prompt_toolkit.
 
 ## Modules
 
-The CLI opens an Omeify `OMETiffReader` and passes it to `ViewSession`.
-`view_info.py` derives display geometry from the public image descriptor.
+The CLI calls `image_input.open_image()` and passes its open Omeify Image to
+`ViewSession`. OME-TIFF still uses `OMETiffReader` directly, with its original
+regional reads and stored levels. Ordinary raster files and one selected PDF page
+are decoded once and wrapped through Omeify's public array API. There is no
+second TIFF decoder or second renderer. `view_info.py` derives display geometry
+from the public image descriptor.
 `ViewSession` uses a session-bound borrowed Omeify image view, generic channels,
 regional reads, and source cache eviction. It is the same path for a TIFF,
 array, or externally implemented procedural image. There is no ttwhy backend
-registry, TIFF decoder, or dependency on Tilework or Mocktome.
+registry, TIFF decoder, or dependency on Tilework or Mocktome. The existing
+Image/ImageSource contract is reused rather than replaced with a viewer adapter.
 
 `viewport.py` owns camera geometry. `view_session.py` owns planning, read budgeting,
 preview sampling, preview cache, and orchestration of normalization/rendering.
@@ -47,6 +52,44 @@ The event loop owns UI state. A single worker owns expensive sampling/rendering,
 with a latest-pending-request slot. There is no unbounded queue of old wheel events
 waiting to become images. Accepted completed frames carry their generation number;
 a stale generation cannot replace the current request's result.
+
+## Ordinary-file ingress
+
+`image_input.py` is deliberately a small, explicit front door, not a plugin
+registry. TIFF and PDF signatures select their paths; the remaining path uses
+Pillow with a fixed raster-format allowlist. No decoder exception triggers a
+fallback, and formats such as EPS cannot invoke converter subprocesses. The
+Pillow dependency is lazy-imported, while PDFium is an optional `pdf` extra.
+Even `ttwhy.open_image` remains importable without loading those decoders.
+
+One selected raster frame is loaded, orientation-corrected, and composited over
+a chosen opaque matte before reduction. Common display modes become RGB8;
+16-bit scalar PNG retains uint16 intensity. ICC color conversion is out of scope.
+PDF pages render once at the requested opening DPI. RGB byte order is explicit,
+and the native bitmap is copied before bitmap/page/document cleanup. All ttwhy
+PDFium work, including import and cleanup, is serialized under one lock; it
+finishes before the viewer worker starts. Unrelated code using PDFium directly
+in the same process must coordinate its own calls with this constraint.
+
+`image_pyramid.py` performs file-free dyadic reduction through 1x1. Level zero is
+an independent unchanged copy, and all retained levels are immutable. Float64
+sums and finite counts propagate to the next reduction before dtype rounding;
+odd edges are neither padded nor equally weighted against larger supports.
+Explicit `ImageLevel.downsample_yx` values are powers of two, not ratios of rounded
+array dimensions. Omeify borrows these owned arrays through `from_array(copy=False)`.
+The generic ViewSession does not acquire pyramid-building behavior.
+
+This ingress intentionally pays the complete decode/build cost in RAM. Its
+retained pyramid and transient sums/copies are outside the session preview-cache
+and per-read budgets. No temporary TIFF or persistent cache exists. Array-image
+references retain their arrays after close, following Omeify's standard ownership
+contract; releasing the references releases this storage. CLI process exit also
+releases it. OME-TIFF's existing read/cache/lifetime policy is unchanged.
+
+`--series` remains zero-based for OME-TIFF; `--page` is one-based for PDF;
+`--frame` is zero-based for ordinary raster frames. Invalid cross-kind selections
+fail explicitly. PDF zoom enlarges the selected raster, not live vectors; page
+switching and animation playback are deliberately not added in this pass.
 
 ## Structured text rendering
 
