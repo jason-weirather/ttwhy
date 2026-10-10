@@ -87,7 +87,9 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
 @click.option("--output-text-clip", type=click.Path(dir_okay=False, path_type=Path),
               help="Interactive Copy/Save destination for the latest text clip; no file until used.")
 @click.option("--output-ansi-clip", type=click.Path(dir_okay=False, path_type=Path),
-              help="Interactive ANSI artwork clip destination, preserving rendered block colors.")
+              help="Interactive ANSI artwork clip destination for terminals.")
+@click.option("--output-png-clip", type=click.Path(dir_okay=False, path_type=Path),
+              help="Interactive image clip destination; PNG preserves colored blocks for sharing.")
 @click.option("--clipboard", type=click.Choice(CLIPBOARD_MODES), default=None,
               help="Copy transport: auto (local helper or OSC 52), osc52, or off (save only).")
 @click.option("--clip-source", type=click.Choice(CLIP_SOURCES), default=None,
@@ -103,21 +105,22 @@ def main(
     max_read_pixels: int, snapshot: bool, columns: int, rows: int, ansi: bool,
     output_path: Path | None, no_overwrite: bool,
     output_text_clip: Path | None, output_ansi_clip: Path | None,
-    clipboard: str | None, clip_source: str | None,
+    output_png_clip: Path | None, clipboard: str | None, clip_source: str | None,
 ) -> None:
     """Explore OME-TIFF, ordinary images, or a PDF page as zoomable terminal text.
 
     Wheel/+/- zoom, arrows or mouse drag pan, c toggles the channel panel.
     PgUp/PgDn or [/] flip PDF pages/OME series; p jumps to a specific page/series.
     l/u/g edit limits and gamma; m cycles render modes; b toggles blocks; ? shows help.
-    s selects a rectangle; y copies text, Y copies ANSI artwork, w/W save clips.
+    s selects a rectangle; y copies text, i copies PNG image; P saves PNG artwork.
     """
     if (lower is None) != (upper is None):
         raise click.UsageError("--lower and --upper must be supplied together")
     if not snapshot and (output_path is not None or ansi):
         raise click.UsageError("--output-path and --ansi require --snapshot")
     if snapshot and any(v is not None for v in
-                        (output_text_clip, output_ansi_clip, clipboard, clip_source)):
+                        (output_text_clip, output_ansi_clip, output_png_clip,
+                         clipboard, clip_source)):
         raise click.UsageError("Clip options apply only to interactive viewing")
     if snapshot and pdf_cache_pages is not None:
         raise click.UsageError("--pdf-cache-pages applies only to interactive PDF viewing")
@@ -173,7 +176,8 @@ def main(
                 channels=channels, window=window, mode=mode, color=use_color, invert=invert,
                 cell_aspect=cell_aspect, viewport=viewport, cache_mib=cache_mib,
                 max_read_pixels=max_read_pixels, output_text_clip=output_text_clip,
-                output_ansi_clip=output_ansi_clip, clipboard=clipboard or "auto",
+                output_ansi_clip=output_ansi_clip, output_png_clip=output_png_clip,
+                clipboard=clipboard or "auto",
                 clip_source=clip_source or "auto", clip_overwrite=not no_overwrite,
             ))
             return

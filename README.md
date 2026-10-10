@@ -166,7 +166,7 @@ PDF DPI does not invent microscopy calibration. Page rotation, rendered annotati
 and available form appearances are included. Rectangle text copying is described below. Text search, password entry, PDF editing
 and interactive form filling are not implemented.
 
-### Rectangle selection and text clips
+### Rectangle selection: text, ANSI and shareable PNG
 
 Press **`s`** or click **[s: Select]** in the footer. Drag a rectangle with the
 left mouse button. The highlighted outline and cursor are UI overlays only:
@@ -181,9 +181,11 @@ source type, and rectangle size.
 
 | While selecting | Action |
 |---|---|
-| `y`, Enter, or Ctrl-C; **Copy** button | Copy text, also saving it when a text-clip destination is configured. |
+| `y`, Enter, or Ctrl-C; **Text** button | Copy text, also saving it when a text-clip destination is configured. |
+| **`i`; Copy PNG button** | Copy a real PNG image for Discord or another chat app using a local OS clipboard helper. |
+| **`P`; Save PNG button** | Save the exact selected terminal artwork as a shareable PNG; prompts for a path when unspecified. |
 | `w`; **Save** button | Save text without touching the clipboard; prompt for a path when none is configured. |
-| `Y`; **ANSI** button | Copy the selected terminal artwork as raw ANSI-colored text. |
+| `Y`; **ANSI** button | Copy the selected terminal artwork as raw ANSI-colored text for compatible terminals. |
 | `W`; **Save ANSI** button | Save the selected terminal artwork, preserving foreground/background colors. |
 | `s` or Escape; **Done** button | Close the selection and resume viewing. |
 | `q` or Ctrl-Q | Quit. Ctrl-C during a path/numeric prompt cancels only that prompt. |
@@ -214,7 +216,8 @@ No OCR runs on images or scanned PDF pages. If a PDF rectangle has no embedded
 text, copying reports that fact and leaves both the clipboard and output file
 untouched; it does not silently substitute block characters. Use
 `--clip-source screen` to deliberately copy terminal glyphs instead of PDF words.
-**`Y`/`W` always export screen artwork**, regardless of input type.
+**`i`/`P` always export screen artwork as an image**, regardless of input type or text layer.
+`Y`/`W` export screen artwork as terminal ANSI regardless of input type.
 
 Plain-text copying does not preserve colors. This matters especially in `blocks`
 mode, where much of the picture lives in the foreground/background colors, not
@@ -222,6 +225,23 @@ in the repeated `▀` glyph. ANSI clips preserve the same character and color
 arrays without re-rendering. They are raw escape-coded UTF-8 text, **not** an
 image or rich HTML/RTF clipboard format; ordinary editors may show escape codes.
 A supporting terminal can display a saved trusted clip with `cat detail.ansi`.
+
+**For Discord or other ordinary chat applications, use PNG, not ANSI.** The `▀`
+block combines two independent terminal RGB colors; pasting the glyphs or their
+ANSI escape codes into Discord loses that picture. **`i`** renders a PNG from the
+frozen text-cell grid and tries to place image data on your local clipboard.
+**`P`** writes the PNG to a file for drag-and-drop/upload. The half-block export
+reproduces exact RGB upper and lower halves without fonts or a second image decode;
+detail/shape/simple modes use geometric Braille dots or available system fonts,
+so their glyph appearance can differ from the terminal. The copied PNG does not
+include the selection outline, title, help, or UI controls. It is not OCR.
+
+Image copy uses macOS `osascript`, Wayland `wl-copy`, X11 `xclip`, or Windows
+PowerShell if available. These are optional local OS helpers and no new Python
+packages are required. **OSC 52 is text-only**, so `--clipboard osc52`, SSH,
+and tmux cannot promise image clipboard copying. In those cases, press **`P`**
+and share the saved PNG from a local machine. Clipboard acceptance by Discord
+and particular desktops has not been tested on all platforms.
 
 ```bash
 ttwhy document.pdf                          # s, drag, y: copy embedded words
@@ -231,7 +251,15 @@ ttwhy document.pdf --clipboard off --output-text-clip excerpt.txt
 # s, drag, y or w: file only; no clipboard access
 
 ttwhy photograph.jpg --output-ansi-clip detail.ansi
-# s, drag, W: save the selected colored terminal artwork
+# s, drag, W: save raw ANSI for terminals (NOT Discord)
+
+ttwhy photograph.jpg --output-png-clip share.png
+# s, drag, i: copy a real PNG for Discord and save share.png
+# s, drag, P: save share.png without using the clipboard
+
+# In SSH, tmux, or any environment without an image clipboard helper:
+ttwhy photograph.jpg --clipboard off --output-png-clip share.png
+# s, drag, P: save PNG, then upload it to Discord
 
 ttwhy document.pdf --clip-source screen     # plain Copy uses screen glyphs
 ```
@@ -241,10 +269,11 @@ A flag-supplied destination, or a path entered through Save, becomes the session
 **latest-clip destination** for that format. Subsequent Copy/Save actions replace
 it; use **`--no-overwrite`** to refuse replacement. To collect several clips in
 this pass, use separate invocations/destinations or move a saved clip aside.
-Files are UTF-8 with LF line endings and a final newline; rectangular spaces are
-not trimmed. Publication is atomic. The input image, its hard-link aliases,
+Text/ANSI files are UTF-8 with LF line endings and a final newline;
+rectangular spaces are not trimmed. PNG files are binary image data.
+Publication is atomic. The input image, its hard-link aliases,
 output symlinks, directories and nonregular targets are rejected. Parent-directory
-symlinks are allowed. Explicit text/ANSI destinations must be different files.
+symlinks are allowed. Explicit text, ANSI and PNG destinations must be different files.
 File failures remain visible and leave the viewer and selection usable. An
 accepted file save is joined on shutdown; no late OSC bytes are sent after exit.
 

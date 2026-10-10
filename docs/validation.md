@@ -418,3 +418,32 @@ layout-analysis capability is claimed. Invisible/badly encoded/OCR text layers
 can differ from visible lettering; extraction preserves PDFium's text-layer order,
 not a guaranteed visual reading order. OSC 52 remains terminal-policy-dependent
 and unacknowledged; file saving is the portable explicit fallback.
+
+## Shareable selected PNG for chat apps (October 2026)
+
+This incremental patch applies after the rectangle-selection patch on `1faa6c0`.
+It retains the viewer's PDF detail default of 600 DPI and adds no dependencies or
+Python-version increase. PNG bytes are rendered from the frozen `TextImage`, not
+from a new PDF/image raster read. In half-block mode every upper/lower half uses
+the exact RGB foreground/background array values, without terminal fonts or
+embedded ANSI escape codes. Braille dots are reconstructed geometrically;
+other glyphs depend on available local fonts and can differ from terminal fonts.
+
+**Executed validation:** 402 tests passed in five separate runs: 388 non-PTY
+and 14 actual PTY tests. A combined one-process suite run exceeded the test
+runner's timeout without an assertion failure; the five smaller runs cover
+all 402 collected tests. Linux/Python 3.13.5, real Omeify 0.21.0 source,
+Pillow 12.3.0, pypdfium2 5.8.0. The new tests check per-half pixel colors
+in decoded PNGs, fixed cell geometry, Braille/ASCII visibility, export size
+limits, atomic PNG save, input/hardlink protection, path collisions, local
+clipboard-helper command payloads, explicit remote/OSC 52 failures, and keyboard
+selection followed by image copy/save. Existing PDF navigation, all 14 terminal
+PTY tests, and the original text/ANSI selection actions pass unchanged.
+
+Local helper invocation on macOS, Wayland, and Windows was simulated; actual
+macOS/Windows/Wayland/X11 image-paste acceptance by Discord has **not** been
+measured. Native helpers are optional; unavailable/remote environments can
+save PNGs explicitly. On macOS, the helper briefly uses a private temporary
+PNG file for AppleScript clipboard ingestion and deletes it immediately. This
+is not an intermediate image pyramid or persistent cache. On SSH/tmux, OSC 52
+is text-only and no attempt is made to transmit PNG clipboard data through it.

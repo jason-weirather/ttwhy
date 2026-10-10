@@ -193,6 +193,14 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
     def copy_ansi(event):
         viewer.clipping.submit(ansi=True)
 
+    @bindings.add("i", filter=selecting)
+    def copy_png(event):
+        viewer.clipping.submit_image()
+
+    @bindings.add("P", filter=selecting)
+    def save_png(event):
+        viewer.clipping.save(image=True)
+
     @bindings.add("w", filter=selecting)
     def save_text(event):
         viewer.clipping.save()

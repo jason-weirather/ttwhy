@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..image_clip import clipboard_png, write_png_clip
+from ..png_clip import render_clip_png
 from ..pdf_text import extract_pdf_text
 from ..text_clip import (
     CLIPBOARD_MODES, CLIP_SOURCES, ClipboardDelivery, clipboard_delivery,
@@ -25,18 +27,22 @@ def file_stamp(path: Path) -> tuple[int, int, int, int]:
 
 
 def clip_options(*, source_path=None, output_text_clip=None, output_ansi_clip=None,
-                 clipboard="auto", clip_source="auto", clip_overwrite=True) -> None:
+                 output_png_clip=None, clipboard="auto", clip_source="auto",
+                 clip_overwrite=True) -> None:
     """Preflight explicit destinations without creating or truncating any file."""
     if clipboard not in CLIPBOARD_MODES or clip_source not in CLIP_SOURCES:
         raise ValueError("Invalid clipboard or clip_source option")
-    paths = [Path(p).expanduser() for p in (output_text_clip, output_ansi_clip) if p is not None]
+    paths = [Path(p).expanduser() for p in (output_text_clip, output_ansi_clip,
+                                             output_png_clip) if p is not None]
     source = None if source_path is None else Path(source_path)
     for path in paths:
         validate_clip_path(path, source=source, overwrite=clip_overwrite)
-    if len(paths) == 2 and (paths[0].resolve() == paths[1].resolve() or (
-        paths[0].exists() and paths[1].exists() and paths[0].samefile(paths[1])
-    )):
-        raise ValueError("Text and ANSI clip destinations must be different files")
+    for position, left in enumerate(paths):
+        for right in paths[position + 1:]:
+            if left.resolve() == right.resolve() or (
+                left.exists() and right.exists() and left.samefile(right)
+            ):
+                raise ValueError("Text, ANSI and PNG clip destinations must be different files")
 
 
 @dataclass(frozen=True)
@@ -54,18 +60,20 @@ class ClipController:
     """
 
     def __init__(self, viewer: Viewer, *, source_path=None, output_text_clip=None,
-                 output_ansi_clip=None, clipboard="auto", clip_source="auto",
-                 clip_overwrite=True) -> None:
+                 output_ansi_clip=None, output_png_clip=None, clipboard="auto",
+                 clip_source="auto", clip_overwrite=True) -> None:
         if source_path is None and viewer.navigation is not None:
             source_path = viewer.navigation.document.path
         clip_options(source_path=source_path, output_text_clip=output_text_clip,
-                     output_ansi_clip=output_ansi_clip, clipboard=clipboard,
-                     clip_source=clip_source, clip_overwrite=clip_overwrite)
+                     output_ansi_clip=output_ansi_clip, output_png_clip=output_png_clip,
+                     clipboard=clipboard, clip_source=clip_source,
+                     clip_overwrite=clip_overwrite)
         self.viewer = viewer
         self.source = None if source_path is None else Path(source_path).resolve()
         self.source_stamp = None if self.source is None else file_stamp(self.source)
         self.paths = {False: None if output_text_clip is None else Path(output_text_clip).expanduser(),
-                      True: None if output_ansi_clip is None else Path(output_ansi_clip).expanduser()}
+                      True: None if output_ansi_clip is None else Path(output_ansi_clip).expanduser(),
+                      "png": None if output_png_clip is None else Path(output_png_clip).expanduser()}
         self.clipboard, self.clip_source, self.overwrite = clipboard, clip_source, clip_overwrite
         self.selection: RectangleSelection | None = None
         self.viewport = None
@@ -115,7 +123,7 @@ class ClipController:
         self.selection = None
         self.viewport = self.raster_shape = self.pdf_page = None
         self.viewer.canvas._drag = None
-        if self.viewer.editing in ("save-text", "save-ansi"):
+        if self.viewer.editing in ("save-text", "save-ansi", "save-png"):
             self.viewer.cancel_edit()
         self.notify(message)
         if resume:
@@ -143,38 +151,50 @@ class ClipController:
             x, y = self.selection.cursor
             self.move(target[0] - x, target[1] - y, extend=extend)
 
-    def save(self, *, ansi=False) -> None:
+    def save(self, *, ansi=False, image=False) -> None:
         if self.selection is None or self.selection.bounds is None:
             self.notify("Select a rectangle first.")
             return
         if self.busy:
             self.notify("A clip is already being prepared.")
             return
-        if self.paths[ansi] is not None:
-            self.submit(ansi=ansi, copy=False, path=self.paths[ansi])
+        key = "png" if image else ansi
+        if self.paths[key] is not None:
+            if image:
+                self.submit_image(copy=False, path=self.paths[key])
+            else:
+                self.submit(ansi=ansi, copy=False, path=self.paths[key])
             return
         viewer = self.viewer
-        viewer.editing = "save-ansi" if ansi else "save-text"
+        viewer.editing = "save-png" if image else "save-ansi" if ansi else "save-text"
         stem = "selection" if self.source is None else self.source.stem
-        viewer.entry.text = stem + (".clip.ansi" if ansi else ".clip.txt")
+        suffix = ".clip.png" if image else ".clip.ansi" if ansi else ".clip.txt"
+        viewer.entry.text = stem + suffix
         viewer.entry.buffer.cursor_position = len(viewer.entry.text)
         viewer.application.layout.focus(viewer.entry)
         viewer.application.invalidate()
 
-    def accept_path(self, text: str, *, ansi=False) -> bool:
+    def accept_path(self, text: str, *, ansi=False, image=False) -> bool:
+        key = "png" if image else ansi
         try:
             if not text.strip():
                 raise ValueError("Enter a file path")
             path = Path(text).expanduser()
-            options = {"output_ansi_clip" if ansi else "output_text_clip": path,
-                       "output_text_clip" if ansi else "output_ansi_clip": self.paths[not ansi]}
+            options = {"output_text_clip": self.paths[False],
+                       "output_ansi_clip": self.paths[True],
+                       "output_png_clip": self.paths["png"]}
+            options["output_png_clip" if image else
+                    "output_ansi_clip" if ansi else "output_text_clip"] = path
             clip_options(source_path=self.source, clip_overwrite=self.overwrite, **options)
         except (ValueError, OSError) as error:
             self.notify(f"Cannot save: {error}")
             return False
-        self.paths[ansi] = path
+        self.paths[key] = path
         self.viewer.cancel_edit()
-        self.submit(ansi=ansi, copy=False, path=path)
+        if image:
+            self.submit_image(copy=False, path=path)
+        else:
+            self.submit(ansi=ansi, copy=False, path=path)
         return True
 
     def submit(self, *, ansi=False, copy=True, path=None) -> None:
@@ -258,6 +278,54 @@ class ClipController:
 
         self._task = self.viewer.application.create_background_task(deliver())
         self.notify("Preparing selected text..." if page is not None else "Preparing selected artwork...")
+
+    def submit_image(self, *, copy=True, path=None) -> None:
+        """Export a real PNG, not the ANSI stream that chat applications cannot paint."""
+        selection = self.selection
+        if self._closed or self.busy:
+            self.notify("A clip is already being prepared.")
+            return
+        if selection is None or selection.bounds is None:
+            self.notify("Select a rectangle first.")
+            return
+        if path is None and copy:
+            path = self.paths["png"]
+        if copy and self.clipboard == "off" and path is None:
+            self.save(image=True)
+            return
+        clip = selection.clip()
+        source, aspect = self.source, self.viewer.renderer.cell_aspect
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ttwhy-clip")
+
+        def prepare() -> ClipResult:
+            try:
+                # The screenshot is made from frozen terminal cells, including
+                # exact RGB halves in blocks mode. No PDF raster is decoded.
+                png = render_clip_png(clip, cell_height=round(12 * aspect))
+                messages = []
+                if path is not None:
+                    write_png_clip(path, png, source=source, overwrite=self.overwrite)
+                    messages.append(f"Saved PNG: {path}")
+                if copy and self.clipboard != "off":
+                    try:
+                        delivery = clipboard_png(png, self.clipboard)
+                        messages.append(delivery.message + " (paste into Discord)")
+                    except (ValueError, OSError, RuntimeError) as error:
+                        messages.append(f"Image clipboard unavailable: {error}")
+                return ClipResult(" | ".join(messages))
+            except Exception as error:
+                return ClipResult(f"PNG clip failed: {error}")
+
+        future = asyncio.get_running_loop().run_in_executor(self._executor, prepare)
+
+        async def deliver() -> None:
+            result = await asyncio.shield(future)
+            if not self._closed and self.viewer.application.is_running:
+                self.notify(result.message)
+
+        self._task = self.viewer.application.create_background_task(deliver())
+        self.notify("Preparing PNG artwork for sharing...")
 
     def status(self) -> str:
         selection = self.selection

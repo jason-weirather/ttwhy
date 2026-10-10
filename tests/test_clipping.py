@@ -611,3 +611,157 @@ async def test_clip_worker_does_not_block_selection_and_coalesces_requests(rgb, 
             assert out.read_text() == expected  # Not the rectangle changed during the write.
         finally:
             release.set()
+
+# Shareable image clips: Discord cannot interpret truecolor ANSI/OSC 52 artwork.
+
+def test_png_clip_exact_half_block_rgb_and_no_selection_overlay():
+    from io import BytesIO
+    from PIL import Image
+    from ttwhy.png_clip import render_clip_png
+
+    chars = np.array([list("▀▀ "), list("▀▀▀")])
+    foreground = np.array([[[255, 0, 0], [0, 255, 0], [0, 0, 0]],
+                           [[0, 0, 255], [255, 255, 255], [20, 30, 40]]], dtype=np.uint8)
+    background = np.array([[[0, 0, 255], [255, 0, 0], [0, 0, 0]],
+                           [[255, 255, 0], [5, 6, 7], [220, 230, 240]]], dtype=np.uint8)
+    frame = TextImage(chars, foreground=foreground, background=background)
+    data = render_clip_png(frame)
+    assert data.startswith(b"\x89PNG\r\n\x1a\n") and b"\x1b[" not in data
+    with Image.open(BytesIO(data)) as image:
+        image.load()
+        assert image.size == (36, 48) and image.mode == "RGB"
+        assert image.getpixel((5, 5)) == (255, 0, 0)
+        assert image.getpixel((5, 15)) == (0, 0, 255)
+        assert image.getpixel((18, 4)) == (0, 255, 0)
+        assert image.getpixel((18, 20)) == (255, 0, 0)
+        assert image.getpixel((31, 5)) == (0, 0, 0)
+        assert image.getpixel((29, 36)) == (220, 230, 240)
+    assert frame.to_text() == "▀▀ \n▀▀▀"
+
+
+def test_png_clip_text_and_braille_have_visible_ink():
+    from io import BytesIO
+    from PIL import Image
+    from ttwhy.png_clip import render_clip_png
+
+    frame = TextImage(np.array([["A", "⠁", " "]]),
+                      foreground=np.array([[[30, 150, 240], [255, 255, 255], [0, 0, 0]]],
+                                          dtype=np.uint8))
+    with Image.open(BytesIO(render_clip_png(frame))) as image:
+        value = np.array(image)
+    assert np.count_nonzero(value[:, :12]) > 0
+    assert np.count_nonzero(value[:, 12:24]) > 0
+    assert not np.any(value[:, 24:])
+
+
+def test_png_clip_rejects_unbounded_output_before_allocating():
+    from ttwhy.png_clip import render_clip_png
+
+    with pytest.raises(ValueError, match="limit"):
+        render_clip_png(TextImage(np.full((40, 40), "#")),
+                        cell_width=128, cell_height=256)
+
+
+def test_png_clip_atomic_file_and_hardlink_protection(tmp_path):
+    from ttwhy.image_clip import write_png_clip
+    from ttwhy.png_clip import render_clip_png
+
+    source, output = tmp_path / "image.png", tmp_path / "detail.png"
+    source.write_bytes(b"original source bytes")
+    png = render_clip_png(TextImage(np.array([["▀"]]),
+                                     foreground=np.array([[[255, 0, 0]]], dtype=np.uint8),
+                                     background=np.array([[[0, 0, 255]]], dtype=np.uint8)))
+    write_png_clip(output, png, source=source)
+    assert output.read_bytes() == png
+    with pytest.raises(FileExistsError):
+        write_png_clip(output, png, source=source, overwrite=False)
+    alias = tmp_path / "alias.png"
+    os.link(source, alias)
+    with pytest.raises(ValueError, match="input image"):
+        write_png_clip(alias, png, source=source)
+    with pytest.raises(ValueError, match="input image"):
+        write_png_clip(source, png, source=source)
+    assert source.read_bytes() == b"original source bytes"
+    with pytest.raises(ValueError, match="different"):
+        clip_options(output_png_clip=output, output_ansi_clip=output)
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_image_clipboard_local_mac_uses_png_data_not_filename(monkeypatch):
+    from ttwhy import image_clip
+    from ttwhy.png_clip import render_clip_png
+    clean_clipboard_env(monkeypatch)
+    monkeypatch.setattr(image_clip.sys, "platform", "darwin")
+    monkeypatch.setattr(image_clip.shutil, "which", lambda exe: "/usr/bin/osascript")
+    png = render_clip_png(TextImage(np.array([["▀"]])))
+    calls = []
+    def run(args, **kwargs):
+        calls.append((args, kwargs))
+        assert Path(args[-1]).read_bytes() == png
+        assert "PNGf" in " ".join(args)
+        assert not kwargs.get("shell", False)
+    from pathlib import Path
+    monkeypatch.setattr(image_clip.subprocess, "run", run)
+    result = image_clip.clipboard_png(png)
+    assert result.message == "Copied PNG via macOS clipboard"
+    assert len(calls) == 1 and not Path(calls[0][0][-1]).exists()
+
+
+def test_image_clipboard_linux_native_and_remote_fallback(monkeypatch):
+    from ttwhy import image_clip
+    from ttwhy.png_clip import render_clip_png
+    clean_clipboard_env(monkeypatch)
+    monkeypatch.setattr(image_clip.sys, "platform", "linux")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setattr(image_clip.shutil, "which", lambda name: "/usr/bin/" + name)
+    png = render_clip_png(TextImage(np.array([["▀"]])))
+    calls = []
+    monkeypatch.setattr(image_clip.subprocess, "run", lambda args, **kw: calls.append((args, kw)))
+    assert image_clip.clipboard_png(png).message == "Copied PNG via wl-copy"
+    assert calls[0][1]["input"] == png and calls[0][0][-1] == "image/png"
+    with pytest.raises(RuntimeError, match="OSC 52"):
+        image_clip.clipboard_png(png, "osc52")
+    monkeypatch.setenv("SSH_TTY", "/dev/pts/1")
+    with pytest.raises(RuntimeError, match="SSH/tmux"):
+        image_clip.clipboard_png(png)
+    with pytest.raises(RuntimeError, match="disabled"):
+        image_clip.clipboard_png(png, "off")
+    assert len(calls) == 1
+
+
+async def test_png_selection_keyboard_copies_and_saves_real_image(rgb, tmp_path, monkeypatch):
+    from io import BytesIO
+    from PIL import Image
+    from ttwhy.text_clip import ClipboardDelivery
+    from ttwhy.viewer import clipping
+
+    output = tmp_path / "share.png"
+    captured = []
+    def fake_clipboard(png, mode):
+        captured.append(png)
+        return ClipboardDelivery("Native PNG clipboard helper accepted")
+    monkeypatch.setattr(clipping, "clipboard_png", fake_clipboard)
+    async with running(rgb[0], output_png_clip=output, source_path=rgb[0],
+                       clipboard="auto", renderer=TextRenderer(mode="blocks")) as (
+                           viewer, pipe, _, task):
+        await send(pipe, "s\x1b[H \x1b[C\x1b[C\x1b[B", viewer, task)
+        expected = viewer.clipping.selection.clip()
+        await send(pipe, "i", viewer, task)
+        await eventually(lambda: output.exists() and not viewer.clipping.busy, task)
+        assert len(captured) == 1 and captured[0] == output.read_bytes()
+        with Image.open(BytesIO(captured[0])) as actual:
+            assert actual.size == (expected.shape[1]*12, expected.shape[0]*24)
+        output.unlink()
+        await send(pipe, "P", viewer, task)
+        await eventually(lambda: output.exists() and not viewer.clipping.busy, task)
+        assert output.read_bytes().startswith(b"\x89PNG")
+        assert len(captured) == 1  # Save does not access clipboard.
+        assert viewer.selecting and not task.done()
+
+
+def test_png_flag_snapshot_rejected_before_decode(tmp_path):
+    path = tmp_path / "image.png"
+    path.write_bytes(b"not actually decoded")
+    result = CliRunner().invoke(main, [str(path), "--snapshot", "--output-png-clip",
+                                       str(tmp_path / "share.png")])
+    assert result.exit_code != 0 and "interactive" in result.output

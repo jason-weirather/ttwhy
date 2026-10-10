@@ -146,6 +146,28 @@ No work is started by importing the array renderer, and no PDF worker writes a
 persistent image cache. Executable Python embeddings must use a main guard for
 spawn, as the CLI module does.
 
+## Shareable PNG clip export
+
+The rectangle-selection controller captures the already-rendered immutable
+`TextImage`, not pixels from the original file, and does not include its visual
+selection border. `png_clip.render_clip_png()` maps each `▀` directly to its
+stored RGB foreground (upper half) and background (lower half). This yields a
+shareable, exact-color 12x24-pixel tile for each selected terminal cell without
+ANSI escape sequences, re-reading OME-TIFF tiles, or rasterizing a PDF again.
+Braille is rendered geometrically; other glyphs use available local fonts and
+are therefore typographically approximate outside half-block mode. PNG output
+has a separate output-pixel safety limit.
+
+`image_clip` writes binary PNGs atomically using the text-clip module's destination
+protections. The independent **i / P** copy/save bindings use the existing
+selection lifecycle and one clip-worker executor. Native image clipboard copying
+is attempted locally using platform helpers; OSC 52 cannot carry binary PNG
+clipboard content, so unsupported/remote sessions receive an explicit file-save
+fallback message. Mac helper transfers bytes from a promptly deleted temporary
+PNG file because AppleScript's PNG clipboard type reads file data; this temporary
+file is unrelated to PDF or image pyramid caches. Neither helper reads the
+clipboard or sends image data over the network.
+
 ## Structured text rendering
 
 `TextRenderer` defaults to `detail`; `shape` and `simple` are the other text modes.

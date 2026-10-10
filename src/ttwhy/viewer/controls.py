@@ -86,10 +86,12 @@ class ChannelControl(UIControl):
             lines += [[("class:panel", line)] for line in (
                 " Drag: rectangle", " Arrows: move cursor/corner", " Space: set first corner",
                 " Shift+arrows: extend", " Tab: swap corners", " Home/End: canvas corners",
-                " y / Enter: copy text", " w: save text", " Y: copy ANSI artwork",
+                " y / Enter: copy text", " w: save text", " i: copy PNG image",
+                " P: save PNG image", " Y: copy ANSI artwork",
                 " W: save ANSI artwork", " Esc / s: resume viewing", "", " Text: " + viewer.clipping.source_label,
                 " PDF text requires text layer.", " PNG/JPEG copy screen glyphs.",
-                " No OCR or invented text.", " ANSI preserves block colors.",
+                " No OCR or invented text.", " PNG is for Discord/share.",
+                " ANSI is for terminals only.",
             )]
             return UIContent(get_line=lambda row: lines[row] if row < len(lines) else [],
                              line_count=len(lines), show_cursor=False)
@@ -181,7 +183,9 @@ def clip_fragments(viewer: "Viewer") -> list:
     clip = viewer.clipping
     if not viewer.selecting:
         return [button(" [s: Select] ", clip.toggle)]
-    return [button(" [y: Copy] ", clip.submit),
+    return [button(" [y: Text] ", clip.submit),
+            button("[i: Copy PNG] ", clip.submit_image),
+            button("[P: Save PNG] ", lambda: clip.save(image=True)),
             button("[w: Save] ", clip.save),
             button("[Y: ANSI] ", lambda: clip.submit(ansi=True)),
             button("[W: Save ANSI] ", lambda: clip.save(ansi=True)),
