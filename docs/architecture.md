@@ -148,7 +148,7 @@ spawn, as the CLI module does.
 
 ## Shareable PNG clip export
 
-The rectangle-selection controller captures the already-rendered immutable
+The selection controller captures the already-rendered immutable
 `TextImage`, not pixels from the original file, and does not include its visual
 selection border. `png_clip.render_clip_png()` maps each `▀` directly to its
 stored RGB foreground (upper half) and background (lower half). This yields a
@@ -314,3 +314,64 @@ The existing PDF process finalizer is additionally shielded against cancellation
 arriving during its normal successful cleanup. Awaited process joins and pipe
 reception must complete even after repeated cancellation; merely awaiting a
 TaskGroup is insufficient when a child's own finalizer was interrupted.
+
+
+## Anonymous multi-area selection and shared export
+
+`annotation_identity.py` creates UUIDv4 IDs with stdlib `uuid.uuid4` and short
+coolname labels. This module imports coolname lazily at first naming use, not
+when the numerical renderer is imported. IDs have no path, filename, timestamp,
+image-content or host input. An event-loop-owned factory rejects generated-name
+collisions within one Viewer; per-area immutable identity records retain the ID
+when their user-editable name changes. No automatic classification is generated.
+
+`viewer/selection_set.py` owns multiple rectangle/polygon editors over the same
+frozen TextImage. One area is active for editing/naming; all nonempty areas are
+included in export. Adding or changing tools retains previous areas. Areas may
+be cycled or deleted without starting another image read. Empty drafts are not
+features; unfinished or invalid polygons produce an error, not a partial export.
+The existing freeze, resize invalidation and deferred PDF handoff rules now apply
+to the whole collection. Collections do not span cameras, PDF pages or OME series.
+
+`selection_geometry.py` is file-free: immutable rings, simple-ring validation,
+bounding rectangles and union masks. Rectangle boundaries use cell edges;
+polygon checkpoints use cell centers. Cell-center masks choose text glyphs;
+output-pixel-center masks retain subcell polygon edges in PNGs. Union operations
+preserve gaps, overlap and relative placement without duplicating source content.
+Mask computation is row-chunked. Geometry is captured before dispatch, not read
+from mutable editors while the export worker is running.
+
+`TextImage(mask=...)` blanks excluded characters, erases their retained RGB
+values, and emits default-style spaces in ANSI runs. Unmasked TextImage behavior
+and existing numerical renderer outputs remain unchanged. PNG draws the unmasked
+bounding frame, then applies the finer geometric union mask and image-boundary
+mask. It writes RGBA with all four bytes zero outside the mask; alpha does not
+conceal an excluded RGB payload. These are terminal-artwork PNGs, not original
+source-resolution crops. Input alpha already composited by ingress is not recovered.
+
+`ClipController` uses one shared worker/delivery path for text, ANSI, PNG and
+GeoJSON in either tool. Each accepted job captures immutable area identities,
+geometry, cells, source stamp and destination settings on the UI thread. Renaming,
+adding or ending a selection cannot change an in-flight export. Native PDF words
+remain a single-rectangle operation; polygon and multi-area text are explicitly
+labelled screen artwork rather than extracting the union's larger PDF bounding box.
+
+GeoJSON is constructed from an allowlisted viewer record: feature ID, geometry,
+name, name_generated and selection_type. No image descriptor is merged into its
+properties. Source paths stay internal for file protection and PDF extraction.
+Generic suggested output filenames likewise avoid source metadata. The public
+geometry helper still accepts an explicitly supplied properties dictionary;
+callers are responsible for any metadata they deliberately supply themselves.
+Image-edge intersection validates the resulting single ring; a disconnected
+concave intersection is rejected with a request to select its parts separately.
+No new geometry dependency is introduced.
+
+The channel list has focus-specific PageUp/PageDown and Home/End handling;
+canvas document navigation and bracket shortcuts are unchanged. Focus changes
+alone do not sample pixels. Enter solos any focused channel. Adaptive sidebar
+content reserves more rows for channels rather than increasing sidebar width.
+The ASCII shortcut M is a simple/no-color style preset, not an additional mode
+with a new numerical algorithm. In selection mode it rerenders cached preview
+samples at unchanged cell geometry and retains all identities/masks. Full-terminal
+name/file prompts use a conditional floating entry row, avoiding selection loss
+from a canvas resize. The normal viewer gains no additional UI rows.

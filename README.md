@@ -35,7 +35,7 @@ The example environment uses Python 3.11 to exercise the supported minimum; newe
 Python versions are also supported. For the 0.21 transition and its validation limits,
 see [validation](docs/validation.md).
 
-NumPy, SciPy, Click, Omeify, Pillow, prompt_toolkit, and wcwidth are direct runtime
+NumPy, SciPy, Click, Omeify, Pillow, coolname, prompt_toolkit, and wcwidth are direct runtime
 dependencies. PDF rendering is an optional extra:
 
 ```bash
@@ -166,9 +166,9 @@ PDF DPI does not invent microscopy calibration. Page rotation, rendered annotati
 and available form appearances are included. Rectangle text copying is described below. Text search, password entry, PDF editing
 and interactive form filling are not implemented.
 
-### Rectangle selection: text, ANSI and shareable PNG
+### Selection: text, ANSI, PNG and GeoJSON
 
-Press **`s`** or click **[s: Select]** in the footer. Drag a rectangle with the
+Press **`s`** for rectangles or **`v`** for polygons, or use the footer buttons. Drag a rectangle with the
 left mouse button. The highlighted outline and cursor are UI overlays only:
 copying never includes the border, sidebar, title, or status text.
 
@@ -177,30 +177,41 @@ to anchor the first corner, then use the arrows to extend the box. **Shift+arrow
 can also start/extend a box, and **Tab** swaps the active corner. **Home/End** move
 to the canvas's first/last cell. Both endpoint cells are included; rectangles
 work in either drag direction. The sidebar and status show the current controls,
-source type, and rectangle size.
+text source, active area, and its name. Polygon checkpoints use terminal-cell centers;
+click the first point or press **Enter** to close. **Tab** reopens a closed polygon,
+then removes its most recent vertex.
 
 | While selecting | Action |
 |---|---|
-| `y`, Enter, or Ctrl-C; **Text** button | Copy text, also saving it when a text-clip destination is configured. |
-| **`i`; Copy PNG button** | Copy a real PNG image for Discord or another chat app using a local OS clipboard helper. |
-| **`P`; Save PNG button** | Save the exact selected terminal artwork as a shareable PNG; prompts for a path when unspecified. |
-| `w`; **Save** button | Save text without touching the clipboard; prompt for a path when none is configured. |
-| `Y`; **ANSI** button | Copy the selected terminal artwork as raw ANSI-colored text for compatible terminals. |
-| `W`; **Save ANSI** button | Save the selected terminal artwork, preserving foreground/background colors. |
-| `s` or Escape; **Done** button | Close the selection and resume viewing. |
+| `y` / `w` | Copy / save text from **all** selected areas. Ctrl-C also copies; Enter first closes an open polygon, otherwise copies text. |
+| `i` / `P` | Copy / save one PNG of the selected artwork, with transparent gaps. |
+| `Y` / `W` | Copy / save terminal ANSI artwork; unselected cells become unstyled spaces. |
+| `j` / `J` | Copy / save one GeoJSON FeatureCollection with a separate feature per area. |
+| `a` | Keep the current area and start another with the same tool. |
+| `s` / `v` | Switch to the other shape tool, retaining existing areas. The current tool's key exits selection. |
+| `[` / `]`, or PageUp / PageDown | Activate the previous / next area. |
+| `n`; Delete | Rename / remove the active area. |
+| `M` | Toggle a plain-ASCII preview using cached samples, without moving any area. |
+| Escape; **Esc** button | Clear this selection session and resume viewing. |
 | `q` or Ctrl-Q | Quit. Ctrl-C during a path/numeric prompt cancels only that prompt. |
 
 The displayed frame is **frozen while selecting**. Zoom, pan, channel changes,
 and page/series navigation are inactive until you finish selection. PDF workers
 may finish and cache better detail, but source replacement waits until selection
 ends. This keeps the copied rectangle attached to precisely what you selected.
-A terminal/canvas resize clears the selection rather than exporting hidden or
-shifted cells. Save prompts reuse a footer row, so opening a prompt does not
-resize the image or shift the rectangle. No additional PDF raster is created
+All areas share this one frozen view. They do not span pages, series or camera changes.
+A terminal/canvas resize clears the whole set rather than exporting shifted cells. Save prompts reuse a footer row, so opening a prompt does not
+resize the image or shift the selection. In full-terminal mode, entry overlays the
+bottom row instead. No additional PDF raster is created
 for selection; it borrows the already-rendered, small immutable TextImage.
 
 **There are two kinds of text.** With the default `--clip-source auto`, file-backed
-PDF viewing copies the PDF's **embedded words** within the rectangle. It maps the
+PDF viewing copies the PDF's **embedded words** for a single rectangle.
+Polygon and multi-area selections instead copy masked **screen characters**;
+the status explicitly says `screen text`. This avoids including PDF words from
+unselected parts of a larger bounding box. The selection's **M** ASCII preview
+also explicitly selects screen text. No polygon-filtered PDF text extraction or
+OCR is implemented. For single-rectangle embedded extraction, ttwhy maps the
 selected cell edges through the frozen viewport to the PDF page using PDFium's
 own coordinate transform, including page rotation and CropBox offsets. The
 current DPI does not limit text extraction. This uses the already-optional PDF
@@ -217,6 +228,12 @@ text, copying reports that fact and leaves both the clipboard and output file
 untouched; it does not silently substitute block characters. Use
 `--clip-source screen` to deliberately copy terminal glyphs instead of PDF words.
 **`i`/`P` always export screen artwork as an image**, regardless of input type or text layer.
+For multiple areas, one bounding rectangle preserves their original relative positions.
+Text/ANSI keeps cells whose centers are in any area and space-pads the rest;
+PNG masks at output-pixel resolution for subcell polygon edges. Overlaps are
+included once in the artwork, but remain separate named GeoJSON features.
+An untouched new-area cursor is ignored; an unfinished polygon blocks export
+until it is closed or removed. Up to 256 areas can be selected in one view.
 `Y`/`W` export screen artwork as terminal ANSI regardless of input type.
 
 Plain-text copying does not preserve colors. This matters especially in `blocks`
@@ -234,7 +251,11 @@ frozen text-cell grid and tries to place image data on your local clipboard.
 reproduces exact RGB upper and lower halves without fonts or a second image decode;
 detail/shape/simple modes use geometric Braille dots or available system fonts,
 so their glyph appearance can differ from the terminal. The copied PNG does not
-include the selection outline, title, help, or UI controls. It is not OCR.
+include selection outlines, names, title, help, or UI controls. It is not OCR.
+PNG output is RGBA: outside the union and outside image bounds, alpha **and RGB**
+are zero. It does not retain invisible excluded image colors. Black pixels and
+blank glyphs inside selected image areas stay opaque. This is selection
+transparency, not restoration of an input PNG's already-composited alpha.
 
 Image copy uses macOS `osascript`, Wayland `wl-copy`, X11 `xclip`, or Windows
 PowerShell if available. These are optional local OS helpers and no new Python
@@ -267,39 +288,87 @@ ttwhy document.pdf --clip-source screen     # plain Copy uses screen glyphs
 No clip file is created at startup, on drag release, or merely when quitting.
 A flag-supplied destination, or a path entered through Save, becomes the session's
 **latest-clip destination** for that format. Subsequent Copy/Save actions replace
-it; use **`--no-overwrite`** to refuse replacement. To collect several clips in
-this pass, use separate invocations/destinations or move a saved clip aside.
+it; use **`--no-overwrite`** to refuse replacement. A single clip can contain many
+areas. To keep several independent export files, use separate destinations or
+move a saved clip aside.
 Text/ANSI files are UTF-8 with LF line endings and a final newline;
-rectangular spaces are not trimmed. PNG files are binary image data.
+rectangular spaces are not trimmed. PNG files are binary image data. Suggested
+filenames are `selection.txt`, `selection.ansi`, `selection.png`, and
+`regions.geojson`; no suggested filename is derived from the input.
 Publication is atomic. The input image, its hard-link aliases,
 output symlinks, directories and nonregular targets are rejected. Parent-directory
-symlinks are allowed. Explicit text, ANSI and PNG destinations must be different files.
+symlinks are allowed. Explicit text, ANSI, PNG and GeoJSON destinations must be
+different files.
 File failures remain visible and leave the viewer and selection usable. An
 accepted file save is joined on shutdown; no late OSC bytes are sent after exit.
 
 ### GeoJSON annotation selections
 
-The interactive viewer can export geometry from any input, independent of its
-terminal rendering mode. Press **`s`** for rectangle selection, or **`v`** for a
-polygon. In polygon mode, click to add vertices, or use the arrows and **Space**
-to place each vertex. **Tab** removes the last polygon vertex. At least three
-vertices are required; GeoJSON closes the ring automatically.
+Rectangle and polygon areas support the same export keys. **`a`** adds another
+area; switching to the other **s/v** tool retains the existing areas, allowing
+mixed-shape selections. Use **`[` / `]`** to choose an area and **`n`** to rename it.
+The status stays compact: `Name: clever-copper-otter (n to rename)`.
 
-While selecting, **`n`** names the feature, **`j`** copies a GeoJSON
-`FeatureCollection` as text, and **`J`** saves it. The destination can be
-preconfigured with `--output-geojson-clip region.geojson`; otherwise Save
-prompts for a file path. Existing `--clipboard` and `--no-overwrite` policies
-also apply. Rectangle text/ANSI/PNG exports remain available as before.
+Every area receives a fresh **UUIDv4** and a **coolname**-generated three-word
+slug. Generated labels are random identifiers, **not** descriptions,
+classifications or biological interpretations. Short three-component slugs are
+chosen from coolname's standard vocabulary; no custom medical vocabulary is used.
+Generated names do not repeat within a viewer session; UUIDs identify features
+across sessions. Copying, saving, reopening a polygon or editing its geometry
+keeps its ID. Renaming preserves the ID and changes `name_generated` to `false`.
+A new area receives a new ID. Accepting an unchanged name keeps the existing flag.
 
-GeoJSON coordinates are **source-image pixel coordinates**, not terminal-cell
-coordinates, latitude/longitude, or physical micrometers. Origin is top-left,
-X increases rightward and Y downward. Exported properties contain the feature
-name, selection type, image dimensions, and (for navigable documents) page or
-series. These coordinates suit image annotation tools such as QuPath when
-imported against the **same image and orientation**. PDF exports refer to the
-**currently displayed raster DPI** and require a corresponding raster for pixel
-alignment; their coordinates are not PDF points or a permanent cross-DPI frame.
-QuPath import of these new exports has not been tested on a real project yet.
+**`j` / `J`** copies / saves one `FeatureCollection` with a feature for every
+nonempty area, in creation order. Each feature contains only `type`, `id`,
+`geometry`, and properties `name`, `name_generated`, `selection_type`.
+**No source path, filename, source URL, page, series, image dimensions, machine
+identity or inherited metadata is exported.** The source path remains internal
+for PDF text extraction and input-overwrite protection. Save destinations can
+be preconfigured with `--output-geojson-clip regions.geojson`.
+
+Geometry uses **source-image pixels**: top-left origin, X rightward, Y downward.
+This is the image-annotation convention used by tools such as QuPath, not
+geographic longitude/latitude. Import against the **same image and orientation**.
+PDF geometry uses the **frozen displayed raster's pixel grid**, not PDF points or
+a cross-DPI coordinate system; export a matching raster or explicitly transform
+the coordinates before importing elsewhere. The viewer does not assemble areas
+from different PDF pages or different OME series into one collection.
+
+Polygons must enclose an area without crossings or repeated vertices. Geometry
+is intersected with the source image rather than treating letterboxing as image
+data. Fully outside/degenerate ROIs are rejected. If clipping a concave polygon
+at the image edge splits it into disconnected parts, select those parts as
+separate areas. Validation errors retain the selection and do not modify files
+or the clipboard. Native QuPath import has not been exercised in this pass.
+
+This prevents **automatic provenance leaks**, not identification from selected
+pixels, PDF text, manually supplied labels, or the surrounding terminal UI.
+These exports are not a redaction or deidentification feature.
+
+### Plain ASCII and full-terminal viewing
+
+**`M`** toggles the existing **simple + no-color** preset, and toggles back to the
+previous artwork. It is separate from **`m`**, which continues to choose the
+rendering algorithm, and **`t`**, which toggles color. Existing raw display limits
+and gamma remain unchanged. The CLI equivalent is:
+
+```bash
+ttwhy photograph.jpg --mode simple --no-color
+```
+
+In selection mode, **M** uses the frozen view's cached samples without decoding
+new source pixels. Area coordinates, names and IDs stay unchanged. **`y/w` and
+`Y/W` then both emit plain ASCII artwork**, including space padding, with no
+SGR escapes or Unicode drawing characters. Leaving selection restores the normal
+viewer style. Ordinary PDF text extraction outside this explicit selection
+preview is still governed by `--clip-source`; `--clip-source screen` always
+chooses artwork rather than embedded words.
+
+**`f`** toggles true full-terminal image viewing. **f** or **Escape** restores the
+controls, with no permanent corner hint or reserved row. Selection and its copy
+keys still work there. Name and save entry temporarily overlay the bottom row;
+they do not shrink the image or discard selections. Escape cancels entry first,
+then selection, then full-terminal mode, one level at a time.
 
 ### Clipboard transport and remote terminals
 
@@ -395,7 +464,11 @@ still be split by tmux; ttwhy does not implement a shell or manage tmux sessions
 | `p`, number, Enter | Go to a PDF page (1-based) or OME series (0-based) |
 | `s`; selection toolbar | Select/copy a rectangle; see the selection controls above. |
 | `c`; Tab | Toggle the sidebar; move focus between image and channels |
-| `,` / `.`; sidebar wheel | Focus the previous / next channel |
+| `,` / `.`; sidebar wheel | Focus the previous / next channel; scroll through the full list |
+| PageUp / PageDown with sidebar focus | Move one visible page through the channel list, not PDF pages/OME series |
+| Home / End with sidebar focus | Focus the first / last channel |
+| Enter with sidebar focus | Solo the focused channel, including channels above index 8 |
+| `M`; `f` | Toggle plain ASCII; toggle full-terminal image view |
 | Space; click a sidebar channel | Toggle the focused channel in the composite |
 | `1` through `9` | Solo channels 0 through 8 |
 | `l` / `u` / `g` | Enter the focused channel's lower / upper limit / gamma |
@@ -408,7 +481,12 @@ still be split by tmux; ttwhy does not implement a shell or manage tmux sessions
 
 When the sidebar has keyboard focus, Up/Down selects its focused channel. At least
 one channel must remain selected. The number shortcuts do not change the zero-based
-indices shown in metadata or accepted by `--channel`.
+indices shown in metadata or accepted by `--channel`. **Tab** puts keyboard focus
+in the sidebar. Its header shows the visible zero-based index range and total
+channel count; the focused row stays visible as it scrolls. On the canvas,
+PageUp/PageDown retain their document meaning. **`[` / `]`** remain document
+navigation while browsing, regardless of sidebar focus. Compact sidebar controls
+leave more rows for channels, including in short terminals.
 
 ### Rendering modes
 
@@ -724,7 +802,7 @@ including array and procedural backends. PDF pages and OME series can be navigat
 in-app; `--page` and `--series` choose the initial selection. Raster `--frame`
 selection remains startup-only. Non-singleton Z/T stacks, label-specific
 categorical coloring, raw vendor formats, OME-Zarr, remote
-URLs, annotations, segmentation overlays, saved view settings, custom colors in
+URLs, persistent annotation editing, segmentation overlays, saved view settings, custom colors in
 the sidebar, and ICC-managed color are not implemented. Explicit categorical LabelImages are rejected rather than assigning continuous
 brightness to arbitrary object IDs. OME-TIFF alone does not declare label semantics;
 CLI users must not interpret numeric label brightness as expression. The reader fails clearly

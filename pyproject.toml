@@ -13,6 +13,7 @@ license-files = ["LICENSE"]
 authors = [{name = "Jason L Weirather"}]
 dependencies = [
     "click>=8.1,<9",
+    "coolname>=2.2,<6",
     "numpy>=2.1,<3",
     "scipy>=1.14,<2",
     "omeify>=0.21.0",

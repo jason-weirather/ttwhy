@@ -447,3 +447,127 @@ save PNGs explicitly. On macOS, the helper briefly uses a private temporary
 PNG file for AppleScript clipboard ingestion and deletes it immediately. This
 is not an intermediate image pyramid or persistent cache. On SSH/tmux, OSC 52
 is text-only and no attempt is made to transmit PNG clipboard data through it.
+
+
+## Anonymous multi-area selection, union export and channel paging (October 2026)
+
+This patch targets the supplied `3d8ae2de8f4ac0ba983d85616698053b6465e67d`
+snapshot. All 57 reconstructed files matched their declared byte sizes and final
+newline flags. Python >=3.11, version 0.2.0, PDF's 600-DPI default, and the existing
+rendering/sampling algorithms are unchanged. `coolname>=2.2,<6` is the sole new
+runtime dependency; UUIDv4 comes from the standard library.
+
+### Executed checks and naming-library limitation
+
+**427 non-PTY tests passed, one skipped**, with **91% statement coverage**.
+**15 POSIX pseudo-terminal tests passed** in two separate lanes, including the
+new mixed rectangle/polygon export workflow. The combined result is **442 passed,
+one skipped**. All image, Omeify, PDFium, NumPy, prompt_toolkit and subprocess
+behavior used real implementations, except for explicitly identified unit-test
+spies and controlled-completion test fixtures.
+
+**The real coolname distribution could not be installed in this sandbox because
+package-download/network access failed.** The naming adapter was checked against
+the documented `generate_slug(3)` API, and a spy asserts that exact call. The
+real-package vocabulary smoke test is the one skipped test. Integration tests
+used a clearly separate, temporary deterministic word-generator double, including
+an isolated double for spawned selection CLI tests. These doubles are **not in
+the patch, wheel or sdist**, and production code has no fake-word fallback.
+Actual UUIDv4 generation, collision retries, name validation, renaming, identity
+stability and metadata privacy were exercised. The 12 non-selection PTY tests did
+not require a naming double. A complete checkout validation with real coolname is:
+
+```bash
+python -m pip install -e '.[dev,pdf]'
+python -m pytest --cov=ttwhy --cov-report=term-missing
+```
+
+Do not interpret these checks as an installed-coolname integration test or a test
+of its full vocabulary. The shipped smoke test runs when the dependency is
+installed normally.
+
+The generated git patch passed `git apply --check`, then `git apply`, against
+a second exact reconstruction of the supplied snapshot. All changed/added files
+matched the working tree byte-for-byte. The applied tree was retested with the
+same external naming fixture: **427 passed, one skipped**.
+
+### New behavior covered
+
+Checks include independent rectangle/polygon names and UUIDv4 IDs, stable IDs
+across repeated exports and renames, generated-name collision retries, empty
+name/control-character rejection, exact minimal exported properties, anonymous
+suggested filenames, and no automatically inherited path, filename, page, series,
+channel label or image dimensions. Renaming during an asynchronous save cannot
+change that save's already-captured identity or content.
+
+Union tests check concave shapes, overlaps, disjoint gaps, reverse winding,
+cell-center inclusion, immutable text masks, original foreground/background
+colors inside selected cells, reset-style spaces outside, and absent hidden RGB
+values. Polygon PNG alpha follows pixel centers, not entire terminal cells;
+fully excluded pixels have **all four RGBA bytes zero**. Valid dark pixels inside
+selected regions remain opaque. Exported PNGs do not contain inherited metadata.
+The image-intersection tests check actual polygon clipping rather than moving
+individual out-of-bounds vertices, and reject empty/degenerate results.
+
+The actual terminal application exercises all eight copy/save shortcuts for a
+polygon, first-point/Enter closure, reopening, adding mixed shapes, choosing and
+renaming an earlier area, removal, untouched empty drafts, explicit errors for
+unfinished shapes, and space/alpha padding in combined exports. A real CLI PTY
+workflow creates a rectangle and polygon, writes a two-feature anonymous
+GeoJSON, saves RGBA PNG, toggles ASCII, and verifies identical escape-free ASCII
+text and ANSI-destination bytes. Exit restores alternate screen, mouse and cursor.
+
+The channel fixture has **128 real synthetic OME-TIFF channels**. Tests reach
+both ends with PageUp/PageDown/Home/End, solo channel 127, scroll with the mouse,
+check hit-testing after scrolling, and shrink the terminal while retaining the
+focused channel. Focusing/paging alone does not request image samples. Compact
+selection toolbars retain all format pairs at 45, 60 and 80 columns.
+
+ASCII selection preview reuses retained ViewSamples and leaves coordinates and
+IDs untouched; a test forbids any new sample read. Full-terminal rename/save
+prompts overlay the last row without shrinking the canvas or clearing multiple
+areas. Single-rectangle native PDF text copying remains covered by the previous
+real PDF rotation/CropBox tests. Polygon and multi-area PDF text uses the explicit
+masked-screen contract; a test forbids a larger native-text bounding-box query.
+
+The baseline's fullscreen Escape test failed because it asserted before the
+terminal Escape-sequence timeout elapsed. Its wait now observes actual state;
+the runtime Escape parser and timeout are unchanged.
+
+### Visual inspection and environment
+
+A real prompt_toolkit character/style screen was reconstructed as an inspection
+PNG, and a real union PNG was inspected against a checkerboard. Both region
+outlines, active-area status/name, compact toolbar, and the transparent gap and
+subcell polygon edges were checked. These are reconstructions of actual output,
+not native desktop screenshots. Synthetic fixtures, local inspection fonts,
+inspection images, and external naming doubles are not shipped.
+
+Linux/Python 3.13.5; NumPy 2.3.5, SciPy 1.17.0, Pillow 12.3.0, pypdfium2 5.8.0,
+tifffile 2026.5.15, prompt_toolkit 3.0.52, pytest 9.0.2, setuptools 82.0.1.
+Integration used the actual Omeify 0.21.0 source recovered from the available
+`6d9f5ff` snapshot, with runtime Python source byte sizes verified. It was not an
+imitation of the Image API or a test of a separately installed Omeify PyPI wheel.
+POSIX PTY runs reported the test harness's Python 3.13 forkpty deprecation warning.
+
+All 52 source/test/example Python files parse with Python 3.11 grammar. Wheel
+and source-distribution builds succeeded via the installed setuptools backend.
+Wheel contents include the three new modules and the coolname dependency, but
+no vendored reader/naming package or font files. The build frontend and Ruff
+executable were unavailable.
+
+### Limits
+
+Selections are limited to one frozen view, at most 256 areas. There is no
+cross-page/series/camera selection persistence, hole/subtraction tool, OCR, or
+polygon-filtered native PDF text. Clipping that would split one concave polygon
+into disconnected components is rejected rather than given invented connecting
+edges. PDF GeoJSON is on the frozen raster pixel grid, not a cross-DPI reference.
+Native QuPath import was not exercised.
+
+An actual Python 3.11 runtime, native desktop clipboards/alpha-paste acceptance,
+live SSH/tmux/Screen transports, macOS/Windows terminals and production mIF slides
+were not tested. PNG files are the portable alpha-preserving output; a receiving
+clipboard application may flatten them. Export metadata minimization does not
+remove identifying content in selected pixels, selected text, or user labels.
+Previously exported files are not automatically rewritten.

@@ -228,3 +228,85 @@ def test_real_terminal_rectangle_copy_and_clip_files(tmp_path, kind):
     output = transcript.getvalue()
     assert "Traceback" not in output
     assert "\x1b[?1049l" in output and "\x1b[?1006l" in output and "\x1b[?25h" in output
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX pseudo-terminal test")
+def test_terminal_mixed_regions_private_geojson_png_and_ascii(tmp_path):
+    """Actual CLI: mixed shapes, all-area publication, ASCII and clean restoration."""
+    import json
+    from uuid import UUID
+
+    import numpy as np
+    from PIL import Image as PILImage
+
+    pexpect = pytest.importorskip("pexpect")
+    source = tmp_path / "private-subject-7821.png"
+    y, x = np.mgrid[:64, :96]
+    PILImage.fromarray(np.stack((x * 2, y * 3, x + y), axis=-1).astype(np.uint8)).save(source)
+    geo, png, text, ansi = (tmp_path / name for name in
+                            ("regions.geojson", "selection.png", "selection.txt", "selection.ansi"))
+    env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
+    env.pop("NO_COLOR", None)
+    env.pop("PROMPT_TOOLKIT_COLOR_DEPTH", None)
+    terminal = pexpect.spawn(
+        sys.executable, ["-m", "ttwhy", str(source), "--clipboard", "off",
+                         "--output-geojson-clip", str(geo), "--output-png-clip", str(png),
+                         "--output-text-clip", str(text), "--output-ansi-clip", str(ansi)],
+        encoding="utf-8", dimensions=(26, 110), env=env, timeout=15,
+    )
+    transcript = io.StringIO()
+    terminal.logfile_read = transcript
+
+    def click(cx, cy):
+        # Terminal origin is one-based; canvas starts below the one-row title.
+        return f"\x1b[<0;{cx+1};{cy+2}M\x1b[<0;{cx+1};{cy+2}m"
+
+    def saved(path):
+        deadline = time.monotonic() + 5
+        while not path.exists() and time.monotonic() < deadline:
+            try:
+                terminal.read_nonblocking(65536, timeout=.1)
+            except pexpect.TIMEOUT:
+                pass
+        assert path.exists(), transcript.getvalue()
+        time.sleep(.1)  # Allow the copy-result task to release its busy slot.
+
+    try:
+        terminal.expect(r"\| blocks ")
+        terminal.send("s")
+        time.sleep(.15)
+        terminal.send("\x1b[<0;13;6M\x1b[<32;21;10M\x1b[<0;21;10m")
+        terminal.send("av")  # Retain the rectangle; change the new empty area to polygon.
+        for point in ((40, 6), (55, 6), (52, 17), (39, 14), (40, 6)):
+            terminal.send(click(*point))
+        terminal.send("J")
+        saved(geo)
+        features = json.loads(geo.read_text())["features"]
+        assert len(features) == 2
+        assert {f["properties"]["selection_type"] for f in features} == {"rectangle", "polygon"}
+        assert len({UUID(f["id"]) for f in features}) == 2
+        assert all(UUID(f["id"]).version == 4 for f in features)
+        assert source.name not in geo.read_text() and str(tmp_path) not in geo.read_text()
+        terminal.send("P")
+        saved(png)
+        with PILImage.open(png) as image:
+            assert image.mode == "RGBA"
+            pixels = np.asarray(image)
+            absent = pixels[..., 3] == 0
+            assert absent.any() and (pixels[..., 3] == 255).any()
+            assert not pixels[absent, :3].any()
+        terminal.send("MW")
+        saved(ansi)
+        value = ansi.read_text()
+        assert value.isascii() and "\x1b" not in value and value.strip()
+        terminal.send("w")
+        saved(text)
+        assert text.read_bytes() == ansi.read_bytes()
+        terminal.send("sq")  # Switch adds a new empty rectangle; q always exits.
+        terminal.expect(pexpect.EOF)
+    finally:
+        terminal.close(force=True)
+    assert terminal.exitstatus == 0, transcript.getvalue()
+    output = transcript.getvalue()
+    assert "Traceback" not in output
+    assert "\x1b[?1049l" in output and "\x1b[?1006l" in output and "\x1b[?25h" in output

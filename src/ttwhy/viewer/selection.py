@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..text_image import TextImage
+from ..selection_geometry import SelectionGeometry, union_mask
 
 
 def _merge_runs(cells: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -68,6 +69,15 @@ class RectangleSelection:
         y0, y1 = sorted((self.anchor[1], self.cursor[1]))
         return y0, y1 + 1, x0, x1 + 1
 
+    def geometry(self) -> SelectionGeometry:
+        if self.bounds is None:
+            raise ValueError("Drag a box, or press Space then move with the arrows")
+        return SelectionGeometry(self.kind, tuple(self.vertices()))
+
+    @property
+    def empty(self) -> bool:
+        return self.anchor is None
+
     def clip(self) -> TextImage:
         if self.bounds is None:
             raise ValueError("Drag a box, or press Space then move with the arrows")
@@ -79,7 +89,7 @@ class RectangleSelection:
         y0, y1, x0, x1 = self.bounds
         return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
 
-    def row(self, y: int) -> list[tuple[str, str]]:
+    def row(self, y: int, *, show_cursor: bool = True) -> list[tuple[str, str]]:
         """Overlay a visible ASCII border, never mutate the frame used for copying."""
         if not 0 <= y < self.frame.shape[0]:
             return []
@@ -96,7 +106,7 @@ class RectangleSelection:
                     if inside and (horizontal or vertical):
                         char = "+" if horizontal and vertical else "-" if horizontal else "|"
                         display_style = "class:clip.border"
-                if (x, y) == self.cursor:
+                if show_cursor and (x, y) == self.cursor:
                     char, display_style = "+", "class:clip.cursor"
                 if result and result[-1][0] == display_style:
                     result[-1] = (display_style, result[-1][1] + char)
@@ -107,11 +117,11 @@ class RectangleSelection:
 
 
 class PolygonSelection:
-    """Keyboard and click-by-click polygon checkpoints for GeoJSON export."""
+    """Keyboard and mouse polygon checkpoints shared by every export format."""
 
     kind = "polygon"
-    supports_text = False
-    supports_image = False
+    supports_text = True
+    supports_image = True
     supports_geojson = True
 
     def __init__(self, frame: TextImage, lines: list) -> None:
@@ -137,8 +147,7 @@ class PolygonSelection:
             self.dragging = False
             return
         if self.points and point == self.points[0] and len(self.points) >= 3:
-            self.closed = True
-            self.dragging = False
+            self.finish()
             return
         if not self.points or point != self.points[-1]:
             self.points.append(point)
@@ -158,8 +167,7 @@ class PolygonSelection:
             self.dragging = False
             return
         if self.points and point == self.points[0] and len(self.points) >= 3:
-            self.closed = True
-            self.dragging = False
+            self.finish()
             return
         if not self.points or point != self.points[-1]:
             self.points.append(point)
@@ -172,15 +180,35 @@ class PolygonSelection:
 
     @property
     def bounds(self) -> tuple[int, int, int, int] | None:
-        points = self.points or [self.cursor]
+        points = self.points
         if not points:
             return None
         xs = [point[0] for point in points]
         ys = [point[1] for point in points]
         return min(ys), max(ys) + 1, min(xs), max(xs) + 1
 
+    @property
+    def empty(self) -> bool:
+        return not self.points
+
+    def finish(self) -> None:
+        # Validate before changing state; a bad ring remains editable.
+        SelectionGeometry(self.kind, tuple((x + .5, y + .5) for x, y in self.points))
+        self.closed = True
+        self.dragging = False
+
+    def geometry(self) -> SelectionGeometry:
+        if not self.closed:
+            raise ValueError("Close the polygon: click its first point or press Enter")
+        return SelectionGeometry(self.kind, tuple((x + .5, y + .5) for x, y in self.points))
+
     def clip(self) -> TextImage:
-        raise ValueError("Polygon selections export GeoJSON only")
+        geometry = self.geometry()
+        y0, y1, x0, x1 = geometry.bounds
+        cropped = self.frame.crop(y0, y1, x0, x1)
+        mask = union_mask((geometry,), shape=cropped.shape, origin=(x0, y0))
+        return TextImage(cropped.characters, foreground=cropped.foreground,
+                         background=cropped.background, mask=mask)
 
     def vertices(self) -> list[tuple[int, int]]:
         return list(self.points)
@@ -218,7 +246,7 @@ class PolygonSelection:
             draw_segment(self.points[-1], self.cursor)
         return overlay
 
-    def row(self, y: int) -> list[tuple[str, str]]:
+    def row(self, y: int, *, show_cursor: bool = True) -> list[tuple[str, str]]:
         if not 0 <= y < self.frame.shape[0]:
             return []
         overlay = self._edge_points()
@@ -230,7 +258,7 @@ class PolygonSelection:
                 if (x, y) in overlay:
                     char = overlay[(x, y)]
                     display_style = "class:clip.border"
-                if (x, y) == self.cursor:
+                if show_cursor and (x, y) == self.cursor:
                     char, display_style = "+", "class:clip.cursor"
                 rendered.append((display_style, char))
                 x += 1

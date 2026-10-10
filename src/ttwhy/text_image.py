@@ -31,6 +31,7 @@ class TextImage:
         *,
         foreground: NDArray | None = None,
         background: NDArray | None = None,
+        mask: NDArray | None = None,
     ) -> None:
         chars = np.asarray(characters)
         if chars.ndim != 2 or 0 in chars.shape or chars.dtype.kind != "U":
@@ -43,6 +44,14 @@ class TextImage:
         if any(wcwidth(x) != 1 for x in np.unique(chars)):
             raise ValueError("Each character must occupy one terminal column")
         self.characters = np.array(chars, dtype="U1", copy=True)
+        self.mask = None
+        if mask is not None:
+            value = np.asarray(mask)
+            if value.shape != chars.shape or value.dtype != np.bool_:
+                raise ValueError("mask must be boolean with the same cell shape")
+            self.mask = value.copy()
+            self.mask.flags.writeable = False
+            self.characters[~self.mask] = " "
         self.characters.flags.writeable = False
         self.foreground = self._own_colors(foreground)
         self.background = self._own_colors(background)
@@ -54,6 +63,8 @@ class TextImage:
         if value.shape != (*self.characters.shape, 3) or value.dtype != np.uint8:
             raise ValueError("Cell colors must be uint8 arrays with shape (rows, columns, 3)")
         result = value.copy()
+        if self.mask is not None:
+            result[~self.mask] = 0  # Do not retain hidden colors outside a selection.
         result.flags.writeable = False
         return result
 
@@ -63,7 +74,7 @@ class TextImage:
 
     @property
     def nbytes(self) -> int:
-        return sum(x.nbytes for x in (self.characters, self.foreground, self.background)
+        return sum(x.nbytes for x in (self.characters, self.foreground, self.background, self.mask)
                    if x is not None)
 
     def crop(self, y0: int, y1: int, x0: int, x1: int) -> "TextImage":
@@ -80,7 +91,8 @@ class TextImage:
         region = (slice(y0, y1), slice(x0, x1))
         return type(self)(self.characters[region],
                           foreground=None if self.foreground is None else self.foreground[region],
-                          background=None if self.background is None else self.background[region])
+                          background=None if self.background is None else self.background[region],
+                          mask=None if self.mask is None else self.mask[region])
 
     def iter_runs(self, row: int) -> Iterator[CellRun]:
         """Yield style runs for one row without exposing a framework dependency."""
@@ -96,7 +108,8 @@ class TextImage:
                           tuple(int(x) for x in self.foreground[row, column]))
             background = (None if self.background is None else
                           tuple(int(x) for x in self.background[row, column]))
-            colors = (foreground, background)
+            colors = ((None, None) if self.mask is not None and not self.mask[row, column]
+                      else (foreground, background))
             if column and colors != previous:
                 yield CellRun("".join(self.characters[row, start:column]), *previous)
                 start = column

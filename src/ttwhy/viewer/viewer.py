@@ -10,7 +10,9 @@ from prompt_toolkit import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.input import Input
-from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
+from prompt_toolkit.layout import (
+    ConditionalContainer, Float, FloatContainer, HSplit, Layout, VSplit, Window,
+)
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.output import Output
 from prompt_toolkit.styles import Style
@@ -61,6 +63,7 @@ class Viewer:
         self.text_mode = (self.renderer.mode if self.renderer.mode in TEXT_MODES else "detail")
         self.text_color = self.renderer.color
         self.simple_ramp = self.renderer.ramp
+        self._ascii_restore = None
         self.viewport = viewport
         self.frame: TextImage | None = None
         self.samples: ViewSamples | None = None
@@ -97,9 +100,9 @@ class Viewer:
 
     def _entry_prompt(self) -> str:
         if self.editing in ("save-text", "save-ansi", "save-png", "save-geojson"):
-            return " Save clip to file (Enter / Esc): "
+            return " Save (Enter/Esc): "
         if self.editing == "geojson-name":
-            return " GeoJSON feature name (Enter / Esc): "
+            return " Name: "
         if self.editing == "destination" and self.navigation is not None:
             doc = self.navigation.document
             return f" Go to {doc.label} ({doc.first_index}..{doc.last_index}; Enter / Esc): "
@@ -139,8 +142,16 @@ class Viewer:
                        height=lambda: 1 if self.editing is not None else 2, style="class:footer"),
                 filter=Condition(lambda: not self.image_only),
             ),
-            ConditionalContainer(self.entry, filter=Condition(lambda: self.editing is not None)),
+            ConditionalContainer(self.entry, filter=Condition(
+                lambda: self.editing is not None and not self.image_only)),
         ])
+        # In image-only mode, entry overlays one row instead of resizing the
+        # frozen canvas and throwing away the user's selections.
+        container = FloatContainer(container, floats=[Float(
+            left=0, right=0, bottom=0, height=1,
+            content=ConditionalContainer(self.entry, filter=Condition(
+                lambda: self.image_only and self.editing is not None)),
+        )])
         return Application(
             layout=Layout(container, focused_element=self.canvas),
             key_bindings=create_bindings(self), full_screen=True, mouse_support=True,
@@ -155,6 +166,7 @@ class Viewer:
                 "clip.border": "bg:#ffd75f #000000 bold",
                 "clip.cursor": "bg:#ffffff #000000 bold reverse",
                 "clip.button": "bg:#31415b #ffffff bold",
+                "clip.saved": "bg:#83d5c8 #000000",
             }),
         )
 
@@ -347,6 +359,7 @@ class Viewer:
     def change_renderer(self, **changes) -> None:
         if self.selecting:
             return
+        self._ascii_restore = None
         if "invert" in changes and self.navigation is not None:
             self.navigation.auto_invert = False
         options = {"mode": self.renderer.mode, "color": self.renderer.color,
@@ -369,6 +382,22 @@ class Viewer:
             "blocks": "Blocks: original two-color half-block preview.",
         }[self.renderer.mode]
         self._set_viewport(self.viewport, limit=True)
+
+    def toggle_ascii(self) -> None:
+        """Toggle plain ASCII as a style preset, not another numerical renderer."""
+        if self.selecting or self.editing is not None:
+            return
+        if self._ascii_restore is not None:
+            restore = self._ascii_restore
+            self.change_renderer(**restore)
+            self.message = "Previous artwork restored."
+        else:
+            restore = {"mode": self.renderer.mode, "color": self.renderer.color,
+                       "ramp": self.renderer.ramp}
+            self.change_renderer(mode="simple", color=False)
+            self._ascii_restore = restore
+            self.message = "ASCII: plain characters, no color codes | M: restore"
+        self.application.invalidate()
 
     def cycle_mode(self) -> None:
         """Cycle text modes, including half-blocks only when color is enabled."""
@@ -501,7 +530,7 @@ class Viewer:
 
     def _status(self) -> str:
         if self.selecting:
-            return " " + self.clipping.status()
+            return " " + safe_label(self.clipping.status())
         if self.viewport is None:
             return " Opening image..."
         view = self.viewport
@@ -521,15 +550,10 @@ class Viewer:
         return [*buttons, ("", self._footer_text())]
 
     def _footer_text(self) -> str:
-        if self.navigation is not None and not self.show_help:
-            return (" q quit | +/- zoom | [/] or PgUp/PgDn pages/series | p jump | ? help\n "
-                    + safe_label(self.message))
         if self.show_help:
-            return (" arrows: pan | wheel/+/-: zoom | drag: pan | r: fit | c: panel | Tab: focus\n"
-                    " 1..9: solo channel | ,/.: focus | space: toggle | l/u/g: limits "
-                    "| a: auto | t: color | m: cycle modes | b: blocks | i: density | q: quit")
-        return (" q quit | +/- zoom | m modes | b blocks | c channels | l/u limits | ? help\n "
-                + safe_label(self.message))
+            return (" | m: mode | M: ASCII | t: color | q: quit\n"
+                    " Arrows: pan | +/-: zoom | r: fit | Tab: channels | l/u/g: limits | ?: less")
+        return " | m:mode M:ASCII ?:help q:quit\n " + safe_label(self.message)
 
     def __repr__(self) -> str:
         return (f"Viewer(channels={self.selected_channels}, mode={self.renderer.mode!r}, "

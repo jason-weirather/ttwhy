@@ -114,7 +114,7 @@ def test_polygon_selection_adds_points_can_close_and_can_reopen(cells):
     assert not selection.closed
     selection.swap_corner()
     assert selection.vertices() == [(3, 2), (5, 2)]
-    with pytest.raises(ValueError, match="GeoJSON only"):
+    with pytest.raises(ValueError, match="Close the polygon"):
         selection.clip()
 
 
@@ -465,7 +465,7 @@ async def test_clickable_selection_buttons_require_real_click_not_drag_release(r
         selection.start_drag(1, 1)
         # Releasing a canvas drag onto Copy is not an explicit copy action.
         fragments = clip_fragments(viewer)
-        fragments[0][2](MouseEvent(Point(0, 0), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset()))
+        next(f[2] for f in fragments if len(f) == 3 and f[1] == "y")(MouseEvent(Point(0, 0), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset()))
         assert not selection.dragging and viewer.editing is None
         await send(pipe, "s", viewer, task)
         assert not viewer.selecting

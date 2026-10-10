@@ -54,7 +54,7 @@ def test_polygon_clicks_arrows_undo_and_export(frame):
     assert feature["properties"]["name"] == "region"
     selection.swap_corner()
     assert selection.vertices() == [(0, 0), (5, 0)]
-    with pytest.raises(ValueError, match="Polygon selections"):
+    with pytest.raises(ValueError, match="Close the polygon"):
         selection.clip()
     with pytest.raises(ValueError, match="at least three"):
         polygon_feature(vertices=selection.vertices(), viewport=Viewport(0, 0, 6, 4),
@@ -113,12 +113,15 @@ async def test_rectangle_save_and_named_polygon_copy(frame, tmp_path, monkeypatc
         await viewer.clipping._task
         value = json.loads(path.read_text())
         assert value["features"][0]["geometry"]["coordinates"][0][0] == [110., 200.]
-        assert value["features"][0]["properties"]["name"] == "image-rectangle"
+        assert value["features"][0]["properties"]["name"] == viewer.clipping.geojson_name
+        assert "image" not in value["features"][0]["properties"]["name"]
+        assert value["features"][0]["properties"]["name_generated"] is True
         viewer.clipping.start_polygon()
         polygon = viewer.clipping.selection
         for cell in [(0, 0), (3, 0), (3, 3)]:
             polygon.start_drag(*cell)
             polygon.drag(*cell, finish=True)
+        polygon.finish()
         viewer.clipping.geojson_name = "Nucleus A"
         viewer.clipping.submit_geojson()
         await viewer.clipping._task
@@ -126,7 +129,8 @@ async def test_rectangle_save_and_named_polygon_copy(frame, tmp_path, monkeypatc
         import base64
         raw = base64.b64decode(written[-1].split(";")[-1].rstrip("\x07")).decode("utf8")
         geo = json.loads(raw)
-        assert geo["features"][0]["properties"]["name"] == "Nucleus A"
-        assert len(geo["features"][0]["geometry"]["coordinates"][0]) == 4
+        assert len(geo["features"]) == 2
+        assert geo["features"][1]["properties"]["name"] == "Nucleus A"
+        assert len(geo["features"][1]["geometry"]["coordinates"][0]) == 4
     finally:
         viewer.clipping.close()

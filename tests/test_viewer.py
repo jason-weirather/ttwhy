@@ -107,7 +107,10 @@ async def test_fullscreen_mode_uses_full_terminal_and_escape_returns(mif):
         assert viewer.image_only
         assert viewer.canvas_size == (100, 30)
         assert viewer.frame.shape == (30, 100)
-        await send(pipe, "", viewer, task)
+        await send(pipe, "\x1b", viewer, task)
+        # A bare Escape waits for the terminal key-sequence timeout.
+        await eventually(lambda: not viewer.image_only, task)
+        await ready(viewer, task)
         assert not viewer.image_only
         assert viewer.frame.shape == (26, 68)
 

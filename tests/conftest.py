@@ -13,7 +13,9 @@ def write_pyramid(path: Path, data: np.ndarray, *, rgb: bool = False, levels: in
                   declare_scales: bool = True):
     axes = "YXS" if rgb else "YX" if data.ndim == 2 else "CYX"
     count = 1 if rgb or data.ndim == 2 else data.shape[0]
-    names = ["RGB"] if rgb else ["DAPI", "CD3", "panCK", "CD68"][:count]
+    names = (["RGB"] if rgb else
+             (["DAPI", "CD3", "panCK", "CD68"] +
+              [f"Marker-{i:03d}" for i in range(4, count)])[:count])
     metadata = {"axes": axes, "Channel": {"Name": names}}
     if pixel_size is not None:
         metadata.update(PhysicalSizeX=pixel_size[0], PhysicalSizeY=pixel_size[1],

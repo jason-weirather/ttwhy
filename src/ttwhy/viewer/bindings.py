@@ -23,6 +23,9 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
                                   and viewer.clipping.selection is not None
                                   and viewer.clipping.selection.kind == "polygon")
 
+    channel_focus = browsing & Condition(lambda: viewer.panel_visible
+                    and viewer.application.layout.has_focus(viewer.channel_control))
+
     @bindings.add("c-q", eager=True)
     def quit_always(event: KeyPressEvent) -> None:
         event.app.exit()
@@ -32,10 +35,7 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
         if viewer.editing is not None:
             viewer.cancel_edit()
         elif viewer.selecting:
-            if viewer.clipping.selection is not None and viewer.clipping.selection.kind == "polygon":
-                viewer.clipping.submit_geojson()
-            else:
-                viewer.clipping.submit()
+            viewer.clipping.submit()
         else:
             event.app.exit()
 
@@ -80,21 +80,41 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
     def zoom_out(event: KeyPressEvent) -> None:
         viewer.zoom(1 / 1.25)
 
-    @bindings.add("pageup", filter=browsing)
+    @bindings.add("pageup", filter=browsing & ~channel_focus)
     @bindings.add("[", filter=browsing)
     def previous_item(event: KeyPressEvent) -> None:
         viewer.step_destination(-1)
 
-    @bindings.add("pagedown", filter=browsing)
+    @bindings.add("pagedown", filter=browsing & ~channel_focus)
     @bindings.add("]", filter=browsing)
     def next_item(event: KeyPressEvent) -> None:
         viewer.step_destination(1)
+
+    @bindings.add("pageup", filter=channel_focus)
+    def channel_page_up(event):
+        viewer.focus_channel(-viewer.channel_control.visible_channels)
+
+    @bindings.add("pagedown", filter=channel_focus)
+    def channel_page_down(event):
+        viewer.focus_channel(viewer.channel_control.visible_channels)
+
+    @bindings.add("home", filter=channel_focus)
+    def channel_first(event):
+        viewer.focus_channel(-len(viewer.windows))
+
+    @bindings.add("end", filter=channel_focus)
+    def channel_last(event):
+        viewer.focus_channel(len(viewer.windows))
+
+    @bindings.add("enter", filter=channel_focus)
+    def channel_solo(event):
+        viewer.select_one(viewer.focused_channel)
 
     @bindings.add("p", filter=browsing)
     def destination(event: KeyPressEvent) -> None:
         viewer.begin_destination()
 
-    @bindings.add("home", filter=browsing)
+    @bindings.add("home", filter=browsing & ~channel_focus)
     @bindings.add("r", filter=browsing)
     def fit(event: KeyPressEvent) -> None:
         viewer.fit()
@@ -203,37 +223,64 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
         bindings.add(key, filter=selecting)(edge(last))
         bindings.add("s-" + key, filter=selecting)(edge(last, True))
 
+    @bindings.add("enter", filter=selecting)
+    def selection_enter(event):
+        viewer.clipping.enter()
+
+    @bindings.add("a", filter=selecting)
+    def add_area(event):
+        viewer.clipping.add_area()
+
+    @bindings.add("[", filter=selecting)
+    @bindings.add("pageup", filter=selecting)
+    def previous_area(event):
+        viewer.clipping.cycle_area(-1)
+
+    @bindings.add("]", filter=selecting)
+    @bindings.add("pagedown", filter=selecting)
+    def following_area(event):
+        viewer.clipping.cycle_area(1)
+
+    @bindings.add("delete", filter=selecting)
+    def remove_area(event):
+        viewer.clipping.remove_area()
+
+    @bindings.add("M", filter=idle)
+    def plain_ascii(event):
+        if viewer.selecting:
+            viewer.clipping.toggle_ascii()
+        else:
+            viewer.toggle_ascii()
+
     @bindings.add("n", filter=selecting)
     def name_geojson(event):
         viewer.clipping.begin_name()
 
-    @bindings.add("enter", filter=rectangle_selecting)
-    @bindings.add("y", filter=rectangle_selecting)
+    @bindings.add("y", filter=selecting)
     def copy_text(event):
         viewer.clipping.submit()
 
-    @bindings.add("Y", filter=rectangle_selecting)
+    @bindings.add("Y", filter=selecting)
     def copy_ansi(event):
         viewer.clipping.submit(ansi=True)
 
-    @bindings.add("i", filter=rectangle_selecting)
+    @bindings.add("i", filter=selecting)
     def copy_png(event):
         viewer.clipping.submit_image()
 
-    @bindings.add("P", filter=rectangle_selecting)
+    @bindings.add("P", filter=selecting)
     def save_png(event):
         viewer.clipping.save(image=True)
 
-    @bindings.add("w", filter=rectangle_selecting)
+    @bindings.add("w", filter=selecting)
     def save_text(event):
         viewer.clipping.save()
 
-    @bindings.add("W", filter=rectangle_selecting)
+    @bindings.add("W", filter=selecting)
     def save_ansi(event):
         viewer.clipping.save(ansi=True)
 
     @bindings.add("j", filter=selecting)
-    @bindings.add("enter", filter=polygon_selecting)
     def copy_geojson(event):
         viewer.clipping.submit_geojson()
 

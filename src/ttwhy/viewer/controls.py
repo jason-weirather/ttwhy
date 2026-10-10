@@ -44,14 +44,18 @@ class CanvasControl(UIControl):
         if selection is not None:
             self._drag = None
             x, y = event.position.x, event.position.y
-            if event.event_type == MouseEventType.MOUSE_DOWN and event.button == MouseButton.LEFT:
-                selection.start_drag(x, y)
-            elif event.event_type == MouseEventType.MOUSE_MOVE and event.button == MouseButton.LEFT:
-                selection.drag(x, y)
-            elif event.event_type == MouseEventType.MOUSE_MOVE:
-                selection.drag(x, y)
-            elif event.event_type == MouseEventType.MOUSE_UP:
-                selection.drag(x, y, finish=True)
+            try:
+                if event.event_type == MouseEventType.MOUSE_DOWN and event.button == MouseButton.LEFT:
+                    was_closed = selection.closed
+                    selection.start_drag(x, y)
+                    if selection.closed and not was_closed:
+                        viewer.clipping.notify("Closed | a: add area | y/i/j: copy")
+                elif event.event_type == MouseEventType.MOUSE_MOVE:
+                    selection.drag(x, y)
+                elif event.event_type == MouseEventType.MOUSE_UP:
+                    selection.drag(x, y, finish=True)
+            except ValueError as error:
+                viewer.clipping.notify(str(error))
             viewer.application.invalidate()
             return None
         columns, rows = viewer.canvas_size
@@ -77,6 +81,7 @@ class ChannelControl(UIControl):
         self.viewer = viewer
         self.first_channel = 0
         self.visible_channels = 1
+        self.channel_row_start = 1
 
     def is_focusable(self) -> bool:
         return True
@@ -85,74 +90,44 @@ class ChannelControl(UIControl):
         viewer, info = self.viewer, self.viewer.session.info
         if viewer.selecting:
             selection = viewer.clipping.selection
-            if selection is not None and selection.kind == "polygon":
-                lines = [[("class:panel.title", " POLYGON / GEOJSON")]]
-                lines += [[("class:panel", line)] for line in (
-                    " Click: add polygon point",
-                    " Click first point: close polygon",
-                    " Arrows: move cursor",
-                    " Space: add point / close",
-                    " Shift+arrows: move and add points",
-                    " Tab: reopen / remove last",
-                    " Home/End: canvas corners",
-                    " n: name feature",
-                    " j / Enter: copy GeoJSON",
-                    " J: save GeoJSON",
-                    " Esc / v: resume viewing",
-                    "",
-                    " GeoJSON is in image pixel coordinates.",
-                    " Works for raster, OME-TIFF, and PDF page rasters.",
-                    " Clipboard copies JSON text; save for files.",
-                )]
-            else:
-                lines = [[("class:panel.title", " SELECT / COPY")]]
-                lines += [[("class:panel", line)] for line in (
-                    " Drag: rectangle",
-                    " Arrows: move cursor/corner",
-                    " Space: set first corner",
-                    " Shift+arrows: extend",
-                    " Tab: swap corners",
-                    " Home/End: canvas corners",
-                    " y / Enter: copy text",
-                    " w: save text",
-                    " i: copy PNG image",
-                    " P: save PNG image",
-                    " Y: copy ANSI artwork",
-                    " W: save ANSI artwork",
-                    " n: name GeoJSON",
-                    " j: copy GeoJSON",
-                    " J: save GeoJSON",
-                    " Esc / s: resume viewing",
-                    "",
-                    " Text: " + viewer.clipping.source_label,
-                    " PDF text requires text layer.",
-                    " PNG/JPEG copy screen glyphs.",
-                    " No OCR or invented text.",
-                    " PNG is for Discord/share.",
-                    " ANSI is for terminals only.",
-                )]
+            tool_help = (" Click first / Enter: close" if selection.kind == "polygon" else
+                         " Drag / Space+arrows: box")
+            hints = [tool_help, " a: add | s/v: switch/exit", " [/]: area | Del: remove",
+                     " Tab: corner / undo vertex", " y/w: text | i/P: PNG",
+                     " Y/W: ANSI | j/J: GeoJSON", " M: ASCII | n: rename", " Esc: done"]
+            lines = [[("class:panel.title", " SELECTIONS")]]
+            lines.extend([[("class:panel", text)] for text in hints[:max(0, height - 2)]])
+            capacity = max(0, height - len(lines))
+            start = max(0, selection.active_index - capacity + 1)
+            for index in range(start, min(len(selection.areas), start + capacity)):
+                active = index == selection.active_index
+                text = f"{'>' if active else ' '}{index+1} {selection.areas[index].identity.name}"
+                lines.append([("class:panel.selected" if active else "class:panel", safe_label(text))])
             return UIContent(get_line=lambda row: lines[row] if row < len(lines) else [],
                              line_count=len(lines), show_cursor=False)
-        self.visible_channels = max(1, height - 12)
+        count = len(info.channels)
+        details_height = min(6, max(0, height // 3))
+        self.channel_row_start = 1 if height > 1 else 0
+        self.visible_channels = min(count, max(1, height - self.channel_row_start - details_height))
+        self.first_channel = min(max(0, self.first_channel), max(0, count-self.visible_channels))
         self.first_channel = min(self.first_channel, viewer.focused_channel)
         self.first_channel = max(self.first_channel,
                                  viewer.focused_channel - self.visible_channels + 1)
-        lines = [[("class:panel.title", " CHANNELS  (0-based)")]]
-        for index in range(self.first_channel,
-                           min(len(info.channels), self.first_channel + self.visible_channels)):
+        last = min(count, self.first_channel + self.visible_channels)
+        header = f" CHANNELS {self.first_channel}-{last-1}/{count}"
+        header += (" ^" if self.first_channel else "") + (" v" if last < count else "")
+        lines = [[("class:panel.title", header)]] if self.channel_row_start else []
+        for index in range(self.first_channel, last):
             focus = ">" if index == viewer.focused_channel else " "
             selected = "x" if index in viewer.selected_channels else " "
             style = "class:panel.selected" if index == viewer.focused_channel else "class:panel"
-            name = safe_label(info.channels[index])
-            lines.append([(style, f"{focus}[{selected}] {index} {name}")])
+            lines.append([(style, f"{focus}[{selected}] {index} {safe_label(info.channels[index])}")])
         window = viewer.windows[viewer.focused_channel]
-        limits = ["", " FOCUSED CHANNEL",
-                  f" Lower: {window.lower:g}" if window else " Lower: auto pending",
-                  f" Upper: {window.upper:g}" if window else " Upper: auto pending",
-                  f" Gamma: {window.gamma:g}" if window else " Gamma: 1",
-                  " l / u / g : edit limits", " a : auto visible field",
-                  " space : toggle channel", " , / . : focus channel", " Tab : canvas / channels"]
-        lines.extend([[("class:panel", line)] for line in limits])
+        details = [f" L:{window.lower:g} U:{window.upper:g}" if window else " Limits: auto pending",
+                   f" Gamma:{window.gamma:g}" if window else " Gamma:1",
+                   " l/u/g: edit | a: auto", " Space: toggle | Enter: solo",
+                   " Wheel/arrows/PgUp/PgDn: move", " Home/End: first/last"]
+        lines.extend([[("class:panel", text)] for text in details[:max(0, height-len(lines))]])
         return UIContent(get_line=lambda row: lines[row] if row < len(lines) else [],
                          line_count=len(lines), show_cursor=False)
 
@@ -166,7 +141,7 @@ class ChannelControl(UIControl):
         elif event.event_type == MouseEventType.SCROLL_DOWN:
             viewer.focus_channel(1)
         elif event.event_type == MouseEventType.MOUSE_UP and event.button == MouseButton.LEFT:
-            row = event.position.y - 1
+            row = event.position.y - self.channel_row_start
             index = self.first_channel + row
             if 0 <= row < self.visible_channels and index < len(viewer.windows):
                 viewer.focused_channel = index
@@ -223,18 +198,19 @@ def clip_fragments(viewer: "Viewer") -> list:
         return [button(" [s: Select] ", clip.toggle),
                 button("[v: Polygon] ", clip.start_polygon),
                 button("[f: Full] ", viewer.toggle_fullscreen)]
-    if clip.selection is not None and clip.selection.kind == "polygon":
-        return [button(" [j: GeoJSON] ", clip.submit_geojson),
-                button("[J: Save GeoJSON] ", lambda: clip.save(geojson=True)),
-                button("[n: Name] ", clip.begin_name),
-                button("[v: Done] ", clip.end)]
-    return [button(" [y: Text] ", clip.submit),
-            button("[i: Copy PNG] ", clip.submit_image),
-            button("[P: Save PNG] ", lambda: clip.save(image=True)),
-            button("[w: Save] ", clip.save),
-            button("[Y: ANSI] ", lambda: clip.submit(ansi=True)),
-            button("[W: Save ANSI] ", lambda: clip.save(ansi=True)),
-            button("[j: GeoJSON] ", clip.submit_geojson),
-            button("[J: Save GeoJSON] ", lambda: clip.save(geojson=True)),
-            button("[n: Name] ", clip.begin_name),
-            button("[s: Done] ", clip.end)]
+    # Copy/save keys are individually clickable; each format occupies one short group.
+    width = (viewer.application.output.get_size().columns if viewer.application is not None
+             and hasattr(viewer.application.output, "get_size") else 100)
+    short = width < 76
+
+    def pair(copy_key, save_key, label, copy_action, save_action):
+        return [("", "["), button(copy_key, copy_action), ("", "/"),
+                button(save_key, save_action), ("", ("" if short else " " + label) + "] ")]
+
+    result = pair("y", "w", "txt", clip.submit, clip.save)
+    result += pair("i", "P", "png", clip.submit_image, lambda: clip.save(image=True))
+    result += pair("Y", "W", "ansi", lambda: clip.submit(ansi=True), lambda: clip.save(ansi=True))
+    result += pair("j", "J", "json", clip.submit_geojson, lambda: clip.save(geojson=True))
+    result += [button("[a+] ", clip.add_area), button("[n] ", clip.begin_name),
+               button("[M] ", clip.toggle_ascii), button("[Esc]", clip.end)]
+    return result

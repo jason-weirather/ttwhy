@@ -11,6 +11,7 @@ from __future__ import annotations
 from io import BytesIO
 
 from .text_image import TextImage
+from .selection_geometry import SelectionGeometry, union_mask
 
 CELL_WIDTH = 12
 CELL_HEIGHT = 24
@@ -46,7 +47,10 @@ def _braille(draw, code: int, x: int, y: int, width: int, height: int,
 
 
 def render_clip_png(frame: TextImage, *, cell_width: int = CELL_WIDTH,
-                    cell_height: int = CELL_HEIGHT) -> bytes:
+                    cell_height: int = CELL_HEIGHT,
+                    regions: tuple[SelectionGeometry, ...] | None = None,
+                    origin: tuple[float, float] = (0, 0),
+                    image_bounds: tuple[float, float, float, float] | None = None) -> bytes:
     """Return PNG bytes of a TextImage, preserving half-block RGB at every cell.
 
     Only the cropped, frozen frame is used. Selection borders, UI chrome, and
@@ -114,6 +118,18 @@ def render_clip_png(frame: TextImage, *, cell_width: int = CELL_WIDTH,
                     draw.rectangle((x + cell_width//4, y + cell_height//4,
                                     x + 3*cell_width//4, y + 3*cell_height//4),
                                    outline=foreground)
+    if regions is not None or frame.mask is not None:
+        import numpy as np
+
+        if regions is not None:
+            mask = union_mask(regions, shape=(height, width), origin=origin,
+                              scale=(cell_width, cell_height), image_bounds=image_bounds)
+        else:
+            mask = np.repeat(np.repeat(frame.mask, cell_height, axis=0), cell_width, axis=1)
+        pixels = np.array(image.convert("RGBA"))
+        pixels[~mask] = 0  # Zero RGB too: transparent pixels must not retain excluded artwork.
+        image.close()
+        image = Image.fromarray(pixels)
     output = BytesIO()
     image.save(output, format="PNG", optimize=True)
     return output.getvalue()
