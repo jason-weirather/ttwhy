@@ -89,10 +89,11 @@ class ChannelControl(UIControl):
                 lines = [[("class:panel.title", " POLYGON / GEOJSON")]]
                 lines += [[("class:panel", line)] for line in (
                     " Click: add polygon point",
+                    " Click first point: close polygon",
                     " Arrows: move cursor",
-                    " Space: add point",
+                    " Space: add point / close",
                     " Shift+arrows: move and add points",
-                    " Tab: remove last point",
+                    " Tab: reopen / remove last",
                     " Home/End: canvas corners",
                     " n: name feature",
                     " j / Enter: copy GeoJSON",
@@ -220,7 +221,8 @@ def clip_fragments(viewer: "Viewer") -> list:
     clip = viewer.clipping
     if not viewer.selecting:
         return [button(" [s: Select] ", clip.toggle),
-                button("[v: Polygon] ", clip.start_polygon)]
+                button("[v: Polygon] ", clip.start_polygon),
+                button("[f: Full] ", viewer.toggle_fullscreen)]
     if clip.selection is not None and clip.selection.kind == "polygon":
         return [button(" [j: GeoJSON] ", clip.submit_geojson),
                 button("[J: Save GeoJSON] ", lambda: clip.save(geojson=True)),

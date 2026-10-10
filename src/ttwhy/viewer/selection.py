@@ -119,6 +119,7 @@ class PolygonSelection:
         self.cursor = (frame.shape[1] // 2, frame.shape[0] // 2)
         self.points: list[tuple[int, int]] = []
         self.dragging = False
+        self.closed = False
 
     def clamp(self, x: int, y: int) -> tuple[int, int]:
         return (min(self.frame.shape[1] - 1, max(0, x)),
@@ -132,7 +133,11 @@ class PolygonSelection:
 
     def mark(self) -> None:
         point = self.cursor
+        if self.closed:
+            self.dragging = False
+            return
         if self.points and point == self.points[0] and len(self.points) >= 3:
+            self.closed = True
             self.dragging = False
             return
         if not self.points or point != self.points[-1]:
@@ -140,14 +145,20 @@ class PolygonSelection:
         self.dragging = False
 
     def swap_corner(self) -> None:
-        if self.points:
+        if self.closed:
+            self.closed = False
+        elif self.points:
             self.points.pop()
         self.dragging = False
 
     def start_drag(self, x: int, y: int) -> None:
         point = self.clamp(x, y)
         self.cursor = point
+        if self.closed:
+            self.dragging = False
+            return
         if self.points and point == self.points[0] and len(self.points) >= 3:
+            self.closed = True
             self.dragging = False
             return
         if not self.points or point != self.points[-1]:
@@ -201,10 +212,10 @@ class PolygonSelection:
 
         for left, right in zip(self.points, self.points[1:]):
             draw_segment(left, right)
-        if self.points:
-            draw_segment(self.points[-1], self.cursor)
-        if len(self.points) >= 3 and self.cursor == self.points[0]:
+        if self.closed and len(self.points) >= 3:
             draw_segment(self.points[-1], self.points[0])
+        elif self.points:
+            draw_segment(self.points[-1], self.cursor)
         return overlay
 
     def row(self, y: int) -> list[tuple[str, str]]:

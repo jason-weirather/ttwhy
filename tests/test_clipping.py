@@ -96,16 +96,22 @@ def test_keyboard_anchor_swap_clamp_and_single_cell(cells):
 
 
 
-def test_polygon_selection_adds_points_and_can_remove_last(cells):
+def test_polygon_selection_adds_points_can_close_and_can_reopen(cells):
     selection = PolygonSelection(cells, terminal_lines(cells))
     selection.mark()
     selection.move(2, 0)
     selection.mark()
-    selection.move(0, 2)
+    selection.move(0, 1)
     selection.mark()
     assert selection.vertices() == [(3, 2), (5, 2), (5, 3)]
     assert selection.bounds == (2, 4, 3, 6)
     assert "+" in "".join(text for _, text in selection.row(2))
+    selection.start_drag(3, 2)
+    assert selection.closed
+    row = "".join(text for _, text in selection.row(2))
+    assert "-" in row or "|" in row or "+" in row
+    selection.swap_corner()
+    assert not selection.closed
     selection.swap_corner()
     assert selection.vertices() == [(3, 2), (5, 2)]
     with pytest.raises(ValueError, match="GeoJSON only"):

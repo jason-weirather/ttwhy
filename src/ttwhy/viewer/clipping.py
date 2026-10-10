@@ -129,7 +129,7 @@ class ClipController:
         viewer.canvas._drag = None
         viewer.application.layout.focus(viewer.canvas)
         if kind == "polygon":
-            self.notify("Polygon: click or use arrows, Space to add points, Tab removes last, j copies GeoJSON.")
+            self.notify("Polygon: click to add points, click the first point to close, Space adds, Tab undoes, j copies GeoJSON.")
         else:
             self.notify("Select: drag a box, or arrows to position, Space to anchor, arrows to extend.")
 
@@ -167,15 +167,20 @@ class ClipController:
             return
         self.selection.mark()
         if self.selection.kind == "polygon":
-            self.notify("Point added. Continue placing points, or j/J to export GeoJSON.")
+            if getattr(self.selection, "closed", False):
+                self.notify("Polygon closed. j/Enter copies GeoJSON, J saves it, Tab reopens the polygon.")
+            else:
+                self.notify("Point added. Click the first point or move there and press Space to close; j/J export GeoJSON.")
         else:
             self.notify("First corner set. Arrows resize; Tab swaps corners; y copies; w saves.")
 
     def swap_corner(self) -> None:
         if self.selection is not None:
+            was_closed = getattr(self.selection, "closed", False)
             self.selection.swap_corner()
             if self.selection.kind == "polygon":
-                self.notify("Removed the most recent polygon point.")
+                self.notify("Polygon reopened; click the first point again to close."
+                            if was_closed else "Removed the most recent polygon point.")
             self.viewer.application.invalidate()
 
     def edge(self, *, end=False, extend=False) -> None:
@@ -487,7 +492,8 @@ class ClipController:
         position = f"col {selection.cursor[0]+1}, row {selection.cursor[1]+1}"
         if selection.kind == "polygon":
             name = self.geojson_name or self._default_geojson_name("polygon")
-            return (f"POLYGON | {len(selection.vertices())} points | {position} "
+            state = "closed" if getattr(selection, "closed", False) else "open"
+            return (f"POLYGON | {len(selection.vertices())} points | {state} | {position} "
                     f"| name={name} | frame frozen")
         if selection.bounds is None:
             return f"SELECT | {self.source_label} | {position} | Space: first corner"

@@ -99,6 +99,19 @@ async def test_keyboard_zoom_pan_panel_and_modes(mif):
         assert viewer.frame.shape == (15, 50)
 
 
+async def test_fullscreen_mode_uses_full_terminal_and_escape_returns(mif):
+    async with running(mif[0]) as (viewer, pipe, _, task):
+        assert not viewer.image_only
+        assert viewer.frame.shape == (26, 68)
+        await send(pipe, "f", viewer, task)
+        assert viewer.image_only
+        assert viewer.canvas_size == (100, 30)
+        assert viewer.frame.shape == (30, 100)
+        await send(pipe, "", viewer, task)
+        assert not viewer.image_only
+        assert viewer.frame.shape == (26, 68)
+
+
 async def test_channels_multiselect_and_locked_windows(mif):
     async with running(mif[0]) as (viewer, pipe, _, task):
         first_window = viewer.windows[0]

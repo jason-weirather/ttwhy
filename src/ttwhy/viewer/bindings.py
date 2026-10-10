@@ -49,6 +49,8 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
             viewer.cancel_edit()
         elif viewer.selecting:
             viewer.clipping.end()
+        elif viewer.image_only:
+            viewer.toggle_fullscreen(enable=False)
         else:
             viewer.cancel_edit()
 
@@ -57,6 +59,10 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
         viewer.panel_requested = not viewer.panel_requested
         event.app.layout.focus(viewer.canvas)
         event.app.invalidate()
+
+    @bindings.add("f", filter=browsing)
+    def fullscreen(event: KeyPressEvent) -> None:
+        viewer.toggle_fullscreen()
 
     @bindings.add("tab", filter=browsing)
     def focus(event: KeyPressEvent) -> None:

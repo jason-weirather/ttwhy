@@ -67,6 +67,7 @@ class Viewer:
         self.cell_lines: list[list[tuple[str, str]]] = []
         self.canvas_size = (0, 0)
         self.panel_requested = True
+        self.image_only = False
         self.show_help = False
         self.editing: str | None = None
         self.message = "Opening image..."
@@ -107,7 +108,7 @@ class Viewer:
 
     @property
     def panel_visible(self) -> bool:
-        return bool(self.panel_requested and self.application is not None
+        return bool(not self.image_only and self.panel_requested and self.application is not None
                     and self.application.output.get_size().columns >= 70)
 
     def _build_application(self, input: Input | None, output: Output | None) -> Application:
@@ -119,16 +120,25 @@ class Viewer:
         )
         body = VSplit([Window(self.canvas, style="class:image", always_hide_cursor=True), panel])
         container = HSplit([
-            Window(FormattedTextControl(self._title), height=1, style="class:title"),
+            ConditionalContainer(
+                Window(FormattedTextControl(self._title), height=1, style="class:title"),
+                filter=Condition(lambda: not self.image_only),
+            ),
             ConditionalContainer(
                 Window(FormattedTextControl(lambda: navigation_fragments(self)),
                        height=1, style="class:status"),
-                filter=Condition(lambda: self.navigation is not None),
+                filter=Condition(lambda: self.navigation is not None and not self.image_only),
             ),
             body,
-            Window(FormattedTextControl(self._status), height=1, style="class:status"),
-            Window(FormattedTextControl(self._footer),
-                   height=lambda: 1 if self.editing is not None else 2, style="class:footer"),
+            ConditionalContainer(
+                Window(FormattedTextControl(self._status), height=1, style="class:status"),
+                filter=Condition(lambda: not self.image_only),
+            ),
+            ConditionalContainer(
+                Window(FormattedTextControl(self._footer),
+                       height=lambda: 1 if self.editing is not None else 2, style="class:footer"),
+                filter=Condition(lambda: not self.image_only),
+            ),
             ConditionalContainer(self.entry, filter=Condition(lambda: self.editing is not None)),
         ])
         return Application(
@@ -396,6 +406,19 @@ class Viewer:
                 self.message = "Contrast estimated from the visible preview and locked."
                 self.request_frame()
         self.application.invalidate()
+
+    def toggle_fullscreen(self, *, enable: bool | None = None) -> None:
+        if self.selecting or self.editing is not None:
+            return
+        target = (not self.image_only) if enable is None else bool(enable)
+        if target == self.image_only:
+            return
+        self.image_only = target
+        self.message = ("Full-terminal image mode. Press f or Esc to return."
+                        if self.image_only else "Viewer controls restored.")
+        if self.application is not None:
+            self.application.layout.focus(self.canvas)
+            self.application.invalidate()
 
     def begin_edit(self, field: str) -> None:
         if self.selecting:
