@@ -12,7 +12,6 @@ from ..geojson_clip import dumps as dump_geojson
 from ..geojson_clip import geometry_feature
 from ..annotation_identity import IdentityFactory
 from ..selection_geometry import union_bounds
-from ..text_renderer import TextRenderer
 from ..image_clip import clipboard_png, write_png_clip
 from ..png_clip import render_clip_png
 from ..pdf_text import extract_pdf_text
@@ -83,7 +82,9 @@ class ClipController:
         self.selection: SelectionSet | None = None
         self.viewport = self.raster_shape = self.pdf_page = None
         self.identities = IdentityFactory()
-        self.original_frame = self.ascii_frame = None
+        self.original_frame = None
+        self.preview_modes = None
+        self.preview_frames = {}
         self.ascii_preview = False
         self._executor: ThreadPoolExecutor | None = None
         self._task: asyncio.Task | None = None
@@ -109,7 +110,7 @@ class ClipController:
             shapes = [a.shape for a in self.selection.areas if not a.shape.empty]
             if len(shapes) <= 1 and all(s.kind == "rectangle" for s in shapes):
                 return "PDF text"
-        return "ASCII" if self.ascii_preview else "screen text"
+        return self.preview_modes.label if self.ascii_preview else "screen text"
 
     def notify(self, message: str) -> None:
         self.viewer.message = message
@@ -140,7 +141,10 @@ class ClipController:
         self.viewport, self.raster_shape = view, viewer.session.info.shape
         self.pdf_page = (nav.active.index if nav is not None and nav.document.kind == "pdf"
                          and self.clip_source == "auto" else None)
-        self.original_frame, self.ascii_frame, self.ascii_preview = viewer.frame, None, False
+        self.original_frame = viewer.frame
+        self.preview_modes = viewer.mode_navigation.clone()
+        self.preview_frames = {}
+        self.ascii_preview = self.preview_modes.family == "ascii"
         viewer.canvas._drag = None
         viewer.application.layout.focus(viewer.canvas)
         self.notify("Click first point / Enter: close | a: add area" if kind == "polygon" else
@@ -186,7 +190,9 @@ class ClipController:
             return
         self.selection = None
         self.viewport = self.raster_shape = self.pdf_page = None
-        self.original_frame = self.ascii_frame = None
+        self.original_frame = None
+        self.preview_modes = None
+        self.preview_frames = {}
         self.ascii_preview = False
         self.viewer.canvas._drag = None
         if self.viewer.editing in CLIP_EDIT_STATES:
@@ -239,36 +245,50 @@ class ClipController:
                       if end else (0, 0))
             self.move(target[0] - x, target[1] - y, extend=extend)
 
-    def toggle_ascii(self) -> None:
-        """Rerender cached preview samples only; keep every region and its coordinates."""
-        if self.selection is None:
+    def cycle_preview(self, family: str) -> None:
+        """m/M: cycle frozen color/ASCII artwork without reading the image again.
+
+        Only the glyphs change, not cell positions, selected area identities, or
+        the browsing renderer. A finer style may upscale the cached sample grid.
+        """
+        if self.selection is None or self.preview_modes is None:
             return
-        if self.ascii_preview:
-            self.selection.set_frame(self.original_frame)
-            self.ascii_preview = False
+        candidate = self.preview_modes.clone()
+        if family == "color":
+            candidate.advance_color()
+        elif family == "ascii":
+            candidate.advance_ascii()
         else:
-            if self.ascii_frame is None:
-                viewer = self.viewer
+            raise ValueError("Preview family must be color or ascii")
+        viewer = self.viewer
+        renderer = candidate.make_renderer(viewer.renderer)
+        key = (renderer.mode, renderer.color, renderer.ramp,
+               renderer.invert, renderer.cell_aspect)
+        original = viewer.renderer
+        try:
+            if key == (original.mode, original.color, original.ramp,
+                       original.invert, original.cell_aspect):
+                frame = self.original_frame
+            elif key in self.preview_frames:
+                frame = self.preview_frames[key]
+            else:
                 if viewer.samples is None:
-                    self.notify("No cached preview for ASCII rendering.")
-                    return
-                renderer = TextRenderer(mode="simple", color=False, invert=viewer.renderer.invert,
-                                        cell_aspect=viewer.renderer.cell_aspect,
-                                        ramp=viewer.simple_ramp)
-                try:
-                    styles = viewer.session.prepare_styles(
-                        viewer.samples, windows=[viewer.windows[i]
-                                                 for i in viewer.samples.plan.channels])
-                    self.ascii_frame = viewer.session.render(
-                        viewer.samples, styles=styles, renderer=renderer,
-                        rows=self.selection.frame.shape[0], columns=self.selection.frame.shape[1])
-                except (ValueError, RuntimeError) as error:
-                    self.notify(str(error))
-                    return
-            self.selection.set_frame(self.ascii_frame)
-            self.ascii_preview = True
-        self.notify("ASCII: plain characters, no color codes" if self.ascii_preview else
-                    "Original artwork restored.")
+                    raise ValueError("No cached preview is available for this style")
+                styles = viewer.session.prepare_styles(
+                    viewer.samples, windows=[viewer.windows[i]
+                                             for i in viewer.samples.plan.channels])
+                frame = viewer.session.render(
+                    viewer.samples, styles=styles, renderer=renderer,
+                    rows=self.selection.frame.shape[0], columns=self.selection.frame.shape[1])
+                self.preview_frames[key] = frame
+            self.selection.set_frame(frame)
+        except (ValueError, RuntimeError) as error:
+            self.notify(str(error))
+            return
+        self.preview_modes = candidate
+        self.ascii_preview = candidate.family == "ascii"
+        hint = "M: next | m: color" if self.ascii_preview else "m: next | M: ASCII"
+        self.notify(f"{candidate.label} | {hint}")
 
     def _areas(self):
         if self.selection is None:
@@ -395,7 +415,7 @@ class ClipController:
                     content = extract_pdf_text(source, page, bounds=bounds, raster_shape=raster_shape)
                     if not content.strip():
                         raise ValueError("No embedded PDF text in this box. No OCR was run; "
-                                         "Y/W exports terminal artwork instead.")
+                                         "t/T exports terminal artwork instead.")
                 else:
                     content = text_frame.to_text(ansi=key is True)
                 messages = []
@@ -447,7 +467,9 @@ class ClipController:
     def close(self) -> None:
         self._closed = True
         self.selection = None
-        self.original_frame = self.ascii_frame = None
+        self.original_frame = None
+        self.preview_modes = None
+        self.preview_frames.clear()
         if self._executor is not None:
             self._executor.shutdown(wait=True, cancel_futures=False)
             self._executor = None

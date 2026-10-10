@@ -51,9 +51,9 @@ def clipboard_png(data: bytes, mode: str = "auto") -> ClipboardDelivery:
     if not data.startswith(b"\x89PNG\r\n\x1a\n"):
         raise ValueError("Expected PNG bytes")
     if mode == "off":
-        raise RuntimeError("Clipboard disabled; press P to save a PNG instead")
+        raise RuntimeError("Clipboard disabled; press I to save a PNG instead")
     if mode == "osc52":
-        raise RuntimeError("OSC 52 copies text, not images; press P to save a PNG")
+        raise RuntimeError("OSC 52 copies text, not images; press I to save a PNG")
     if any(os.environ.get(key) for key in
            ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY", "TMUX", "STY")):
         raise RuntimeError("No portable image clipboard over SSH/tmux; save a PNG and upload it")
@@ -121,4 +121,4 @@ def clipboard_png(data: bytes, mode: str = "auto") -> ClipboardDelivery:
                 return ClipboardDelivery(f"Copied PNG via {command[0]}")
             except (OSError, subprocess.SubprocessError):
                 continue
-    raise RuntimeError("No working local image clipboard helper; press P to save PNG for Discord")
+    raise RuntimeError("No working local image clipboard helper; press I to save PNG for Discord")

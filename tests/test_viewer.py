@@ -282,29 +282,62 @@ async def test_new_mode_cycle_keeps_windows_and_reuses_high_resolution_preview(m
         assert tuple(viewer.windows) == windows
 
 
-async def test_monochrome_mode_cycle_and_blocks_roundtrip(mif):
+async def test_color_and_ascii_families_switch_and_remember_styles(mif):
     async with running(mif[0]) as (viewer, pipe, _, task):
-        await send(pipe, "t", viewer, task)
-        assert not viewer.renderer.color and viewer.renderer.mode == "detail"
-        for expected in ("shape", "simple", "detail"):
-            await send(pipe, "m", viewer, task)
-            assert viewer.renderer.mode == expected and not viewer.renderer.color
-            assert viewer.frame.foreground is viewer.frame.background is None
+        assert viewer.renderer.mode == "detail" and viewer.renderer.color
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII classic"
+        assert viewer.renderer.mode == "simple" and not viewer.renderer.color
+        assert viewer.frame.to_text().isascii() and "\x1b" not in viewer.frame.to_text(ansi=True)
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII fine"
+        fine = viewer.frame.to_text()
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII bold"
+        assert viewer.frame.to_text() != fine
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII classic"
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "detail" and viewer.renderer.color
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "shape" and viewer.renderer.color
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII classic"
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII fine"
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "shape" and viewer.renderer.color
         await send(pipe, "b", viewer, task)
         assert viewer.renderer.mode == "blocks" and viewer.renderer.color
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII fine"
         await send(pipe, "b", viewer, task)
-        assert viewer.renderer.mode == "detail" and not viewer.renderer.color
+        assert viewer.renderer.mode == "blocks"
+        await send(pipe, "b", viewer, task)
+        assert viewer.renderer.mode == "simple" and not viewer.renderer.color
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "blocks" and viewer.renderer.color
 
 
-async def test_custom_simple_ramp_survives_other_render_modes(mif):
+async def test_custom_simple_ramp_survives_both_families(mif):
     from ttwhy import TextRenderer
 
     renderer = TextRenderer(mode="simple", ramp=" .#", color=False)
     async with running(mif[0], renderer=renderer) as (viewer, pipe, _, task):
+        assert viewer.mode_navigation.label == "ASCII custom"
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII fine"
         await send(pipe, "m", viewer, task)
-        assert viewer.renderer.mode == "detail"
+        assert viewer.renderer.mode == "simple" and viewer.renderer.color
+        assert viewer.renderer.ramp == " .#"
         await send(pipe, "mm", viewer, task)
-        assert viewer.renderer.mode == "simple" and viewer.renderer.ramp == " .#"
+        assert viewer.renderer.mode == "detail" and viewer.renderer.color
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII fine"
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII bold"
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII custom" and viewer.renderer.ramp == " .#"
 
 
 @pytest.mark.parametrize("kind", ["png", "pdf"])

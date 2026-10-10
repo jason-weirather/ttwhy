@@ -571,3 +571,41 @@ were not tested. PNG files are the portable alpha-preserving output; a receiving
 clipboard application may flatten them. Export metadata minimization does not
 remove identifying content in selected pixels, selected text, or user labels.
 Previously exported files are not automatically rewritten.
+
+## Symmetric selection shortcuts and two rendering families (October 2026)
+
+This incremental change targets the attached `244deaf18b87934cf7e7ff8e562a7ea686eca77d`
+snapshot. Selection copy/save bindings are now lowercase/uppercase pairs:
+`y/Y` text, `i/I` PNG, `t/T` ANSI text art, and `j/J` GeoJSON.
+The retired `w/W/P` selection bindings are not kept as aliases.
+Normal browsing `t` still toggles color; the selection context uses `t` to copy ANSI.
+No export encoding, GeoJSON metadata, UUID lifecycle, image sampling algorithm,
+source-read budget, Python minimum or dependency changes are introduced.
+
+Rendering navigation now has independent state for colored `m` styles
+(detail/shape/simple/blocks) and strict ASCII `M` styles
+(classic/fine/bold ramps of the existing simple renderer). The first keypress
+when crossing families restores that family's remembered style; subsequent
+keypresses advance its cycle. No one-shot restore flag is used. The current
+style and both keys remain visible in the existing compact status/footer.
+During selections, both families render from cached display samples. The
+unmodified, frozen source frame remains available; style previews cannot
+move areas or change their names, IDs or masks. The browsing renderer is
+not changed by selection-only mode navigation.
+
+**Executed here:** 99 focused and renderer-regression tests passed, including
+7 new tests for mode sequences, custom ramps, independent color/ASCII state,
+symmetric key dispatch in both selection tools, a frozen multi-selection
+without new source reads, and actual prompt_toolkit input handling and file
+exports using a file-free synthetic session. The renderer's legacy byte-level
+goldens passed. All source, test and example Python modules parse under the
+Python 3.11 grammar. The final patch was verified against a separate clean
+reconstruction of all 61 files with matching byte lengths and final-newline
+flags.
+
+**Limitations:** The environment lacks the installed Omeify and coolname
+packages. The focused 99-test run includes the existing GeoJSON tests with a
+temporary, out-of-tree naming double, not the published coolname distribution.
+The full Omeify-backed tests, native desktop clipboard acceptance, and live
+macOS/Windows terminal input were not run here. The out-of-tree naming double
+is not packaged in ttwhy or included in this patch.

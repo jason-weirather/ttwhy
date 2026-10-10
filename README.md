@@ -183,15 +183,15 @@ then removes its most recent vertex.
 
 | While selecting | Action |
 |---|---|
-| `y` / `w` | Copy / save text from **all** selected areas. Ctrl-C also copies; Enter first closes an open polygon, otherwise copies text. |
-| `i` / `P` | Copy / save one PNG of the selected artwork, with transparent gaps. |
-| `Y` / `W` | Copy / save terminal ANSI artwork; unselected cells become unstyled spaces. |
+| `y` / `Y` | Copy / save text from **all** selected areas. Ctrl-C also copies; Enter first closes an open polygon, otherwise copies text. |
+| `i` / `I` | Copy / save one PNG of the selected artwork, with transparent gaps. |
+| `t` / `T` | Copy / save terminal ANSI artwork; unselected cells become unstyled spaces. |
 | `j` / `J` | Copy / save one GeoJSON FeatureCollection with a separate feature per area. |
 | `a` | Keep the current area and start another with the same tool. |
 | `s` / `v` | Switch to the other shape tool, retaining existing areas. The current tool's key exits selection. |
 | `[` / `]`, or PageUp / PageDown | Activate the previous / next area. |
 | `n`; Delete | Rename / remove the active area. |
-| `M` | Toggle a plain-ASCII preview using cached samples, without moving any area. |
+| `m` / `M` | Resume/cycle colored artwork or enter/cycle strict ASCII styles. Uses cached samples without moving any area. |
 | Escape; **Esc** button | Clear this selection session and resume viewing. |
 | `q` or Ctrl-Q | Quit. Ctrl-C during a path/numeric prompt cancels only that prompt. |
 
@@ -209,7 +209,7 @@ for selection; it borrows the already-rendered, small immutable TextImage.
 PDF viewing copies the PDF's **embedded words** for a single rectangle.
 Polygon and multi-area selections instead copy masked **screen characters**;
 the status explicitly says `screen text`. This avoids including PDF words from
-unselected parts of a larger bounding box. The selection's **M** ASCII preview
+unselected parts of a larger bounding box. Selecting an ASCII preview with **M**
 also explicitly selects screen text. No polygon-filtered PDF text extraction or
 OCR is implemented. For single-rectangle embedded extraction, ttwhy maps the
 selected cell edges through the frozen viewport to the PDF page using PDFium's
@@ -227,14 +227,14 @@ No OCR runs on images or scanned PDF pages. If a PDF rectangle has no embedded
 text, copying reports that fact and leaves both the clipboard and output file
 untouched; it does not silently substitute block characters. Use
 `--clip-source screen` to deliberately copy terminal glyphs instead of PDF words.
-**`i`/`P` always export screen artwork as an image**, regardless of input type or text layer.
+**`i`/`I` always export screen artwork as an image**, regardless of input type or text layer.
 For multiple areas, one bounding rectangle preserves their original relative positions.
 Text/ANSI keeps cells whose centers are in any area and space-pads the rest;
 PNG masks at output-pixel resolution for subcell polygon edges. Overlaps are
 included once in the artwork, but remain separate named GeoJSON features.
 An untouched new-area cursor is ignored; an unfinished polygon blocks export
 until it is closed or removed. Up to 256 areas can be selected in one view.
-`Y`/`W` export screen artwork as terminal ANSI regardless of input type.
+`t`/`T` export screen artwork as terminal ANSI regardless of input type.
 
 Plain-text copying does not preserve colors. This matters especially in `blocks`
 mode, where much of the picture lives in the foreground/background colors, not
@@ -247,7 +247,7 @@ A supporting terminal can display a saved trusted clip with `cat detail.ansi`.
 block combines two independent terminal RGB colors; pasting the glyphs or their
 ANSI escape codes into Discord loses that picture. **`i`** renders a PNG from the
 frozen text-cell grid and tries to place image data on your local clipboard.
-**`P`** writes the PNG to a file for drag-and-drop/upload. The half-block export
+**`I`** writes the PNG to a file for drag-and-drop/upload. The half-block export
 reproduces exact RGB upper and lower halves without fonts or a second image decode;
 detail/shape/simple modes use geometric Braille dots or available system fonts,
 so their glyph appearance can differ from the terminal. The copied PNG does not
@@ -260,7 +260,7 @@ transparency, not restoration of an input PNG's already-composited alpha.
 Image copy uses macOS `osascript`, Wayland `wl-copy`, X11 `xclip`, or Windows
 PowerShell if available. These are optional local OS helpers and no new Python
 packages are required. **OSC 52 is text-only**, so `--clipboard osc52`, SSH,
-and tmux cannot promise image clipboard copying. In those cases, press **`P`**
+and tmux cannot promise image clipboard copying. In those cases, press **`I`**
 and share the saved PNG from a local machine. Clipboard acceptance by Discord
 and particular desktops has not been tested on all platforms.
 
@@ -269,18 +269,18 @@ ttwhy document.pdf                          # s, drag, y: copy embedded words
 ttwhy document.pdf --output-text-clip excerpt.txt
 
 ttwhy document.pdf --clipboard off --output-text-clip excerpt.txt
-# s, drag, y or w: file only; no clipboard access
+# s, drag, y or Y: file only; no clipboard access
 
 ttwhy photograph.jpg --output-ansi-clip detail.ansi
-# s, drag, W: save raw ANSI for terminals (NOT Discord)
+# s, drag, T: save raw ANSI for terminals (NOT Discord)
 
 ttwhy photograph.jpg --output-png-clip share.png
 # s, drag, i: copy a real PNG for Discord and save share.png
-# s, drag, P: save share.png without using the clipboard
+# s, drag, I: save share.png without using the clipboard
 
 # In SSH, tmux, or any environment without an image clipboard helper:
 ttwhy photograph.jpg --clipboard off --output-png-clip share.png
-# s, drag, P: save PNG, then upload it to Discord
+# s, drag, I: save PNG, then upload it to Discord
 
 ttwhy document.pdf --clip-source screen     # plain Copy uses screen glyphs
 ```
@@ -347,22 +347,22 @@ These exports are not a redaction or deidentification feature.
 
 ### Plain ASCII and full-terminal viewing
 
-**`M`** toggles the existing **simple + no-color** preset, and toggles back to the
-previous artwork. It is separate from **`m`**, which continues to choose the
-rendering algorithm, and **`t`**, which toggles color. Existing raw display limits
-and gamma remain unchanged. The CLI equivalent is:
+**`m`** selects colored terminal artwork (detail / shape / simple / blocks),
+then cycles to the next colored style each time. **`M`** selects strictly ASCII,
+then cycles through three density ramps: **classic**, **fine**, and **bold**.
+Pressing the *other* key returns to its last-used style first, rather than
+advancing unexpectedly. For example, `m m M M m` returns to the second colored
+style; another `m` advances it. Colored simple retains its configured ramp.
 
-```bash
-ttwhy photograph.jpg --mode simple --no-color
-```
-
-In selection mode, **M** uses the frozen view's cached samples without decoding
-new source pixels. Area coordinates, names and IDs stay unchanged. **`y/w` and
-`Y/W` then both emit plain ASCII artwork**, including space padding, with no
-SGR escapes or Unicode drawing characters. Leaving selection restores the normal
-viewer style. Ordinary PDF text extraction outside this explicit selection
-preview is still governed by `--clip-source`; `--clip-source screen` always
-chooses artwork rather than embedded words.
+The status identifies the current ASCII style, and the footer keeps the short
+`m:color M:ASCII` hint visible. Both keys also work while selecting; the frozen
+cached samples are redrawn, not reread. Area coordinates, names, IDs, and the
+selection's overall bounding box stay unchanged. If a high-detail style is
+selected from a coarser cached preview, its apparent detail is limited by those
+existing samples. Text and ANSI exports in an ASCII preview contain only
+ordinary ASCII characters with space-padded gaps, and no color escapes. Press
+`m` to return to colored artwork. Leaving selection does not change the normal
+viewer's rendering mode.
 
 **`f`** toggles true full-terminal image viewing. **f** or **Escape** restores the
 controls, with no permanent corner hint or reserved row. Selection and its copy
@@ -468,13 +468,13 @@ still be split by tmux; ttwhy does not implement a shell or manage tmux sessions
 | PageUp / PageDown with sidebar focus | Move one visible page through the channel list, not PDF pages/OME series |
 | Home / End with sidebar focus | Focus the first / last channel |
 | Enter with sidebar focus | Solo the focused channel, including channels above index 8 |
-| `M`; `f` | Toggle plain ASCII; toggle full-terminal image view |
+| `m` / `M`; `f` | Cycle colored artwork / strict ASCII styles; toggle full-terminal view |
 | Space; click a sidebar channel | Toggle the focused channel in the composite |
 | `1` through `9` | Solo channels 0 through 8 |
 | `l` / `u` / `g` | Enter the focused channel's lower / upper limit / gamma |
 | Enter; Escape or Ctrl-C while editing | Apply; cancel numeric entry |
 | `a` | Estimate and lock contrast from the focused channel's visible preview |
-| `m` | Cycle detail / shape / simple / blocks (skip blocks in monochrome) |
+| `m` | Enter colored artwork, then cycle detail / shape / simple / blocks |
 | `b` | Toggle half-block preview; restore the previous text mode and color setting |
 | `t`; `i` | Toggle color without leaving the current text mode; reverse ink density |
 | `?`; `q` or Ctrl-Q | Toggle key help; quit |

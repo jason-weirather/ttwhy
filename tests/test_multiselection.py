@@ -290,18 +290,23 @@ def test_neutral_filenames_and_short_toolbar(fake_viewer):
         fake_viewer.application.output.get_size = lambda: Size(30, width)
         fragments = clip_fragments(fake_viewer)
         assert len("".join(f[1] for f in fragments)) <= width
-        assert {f[1] for f in fragments if len(f) == 3} >= {"y", "w", "i", "P", "Y", "W", "j", "J"}
+        assert {f[1] for f in fragments if len(f) == 3} >= {"y", "Y", "i", "I", "t", "T", "j", "J"}
 
 
-async def test_ascii_toggle_preserves_camera_ids_masks_and_uses_no_new_read(rgb, tmp_path, monkeypatch):
+async def test_ascii_and_color_cycles_preserve_camera_ids_masks_and_use_no_new_read(
+    rgb, tmp_path, monkeypatch,
+):
     out = tmp_path / "plain.ansi"
     async with running(rgb[0], output_ansi_clip=out, clipboard="off") as (viewer, pipe, _, task):
         before, windows = viewer.renderer, tuple(viewer.windows)
         await send(pipe, "M", viewer, task)
         assert viewer.renderer.mode == "simple" and not viewer.renderer.color
+        assert viewer.mode_navigation.label == "ASCII classic"
         assert viewer.frame.to_text(ansi=True).isascii()
         assert "\x1b" not in viewer.frame.to_text(ansi=True)
         await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII fine"
+        await send(pipe, "m", viewer, task)
         assert viewer.renderer.mode == before.mode and viewer.renderer.color == before.color
         assert tuple(viewer.windows) == windows
         await send(pipe, "s", viewer, task)
@@ -309,19 +314,30 @@ async def test_ascii_toggle_preserves_camera_ids_masks_and_uses_no_new_read(rgb,
         viewer.clipping.add_area("polygon")
         draw_poly(viewer.clipping.selection)
         ids = [a.identity.id for a in viewer.clipping.selection.snapshots()]
-        view, size = viewer.viewport, viewer.canvas_size
+        view, size, original_frame = viewer.viewport, viewer.canvas_size, viewer.frame
+
         def forbidden(*args, **kwargs):
-            raise AssertionError("ASCII selection conversion must not read source pixels")
+            raise AssertionError("Selection style conversion must not read source pixels")
         monkeypatch.setattr(viewer.session, "sample", forbidden)
         await send(pipe, "M", viewer, task)
         assert viewer.clipping.ascii_preview
-        await send(pipe, "W", viewer, task)
+        assert viewer.clipping.preview_modes.label == "ASCII fine"
+        await send(pipe, "M", viewer, task)
+        assert viewer.clipping.preview_modes.label == "ASCII bold"
+        await send(pipe, "T", viewer, task)
         await eventually(lambda: out.exists() and not viewer.clipping.busy, task)
         assert out.read_text().isascii() and "\x1b" not in out.read_text()
         assert [a.identity.id for a in viewer.clipping.selection.snapshots()] == ids
         assert viewer.viewport == view and viewer.canvas_size == size
-        await send(pipe, "M", viewer, task)
+        await send(pipe, "m", viewer, task)
         assert not viewer.clipping.ascii_preview
+        assert viewer.clipping.selection.frame is original_frame
+        await send(pipe, "m", viewer, task)
+        assert viewer.clipping.preview_modes.color_mode == "detail"
+        await send(pipe, "M", viewer, task)
+        assert viewer.clipping.preview_modes.label == "ASCII bold"
+        assert viewer.viewport == view and viewer.canvas_size == size
+        assert [a.identity.id for a in viewer.clipping.selection.snapshots()] == ids
 
 
 async def test_full_terminal_rename_and_save_keep_all_areas(rgb, tmp_path):
@@ -385,7 +401,7 @@ async def test_128_channel_paging_endpoints_and_mouse_selection(tmp_path):
             viewer.channel_control.first_channel + viewer.channel_control.visible_channels)
 
 
-@pytest.mark.parametrize("key", ["y", "w", "i", "P", "Y", "W", "j", "J"])
+@pytest.mark.parametrize("key", ["y", "Y", "i", "I", "t", "T", "j", "J"])
 async def test_polygon_has_all_eight_export_bindings(rgb, tmp_path, monkeypatch, key):
     paths = {False: tmp_path / "out.txt", True: tmp_path / "out.ansi",
              "png": tmp_path / "out.png", "geojson": tmp_path / "out.geojson"}
@@ -405,7 +421,7 @@ async def test_polygon_has_all_eight_export_bindings(rgb, tmp_path, monkeypatch,
         expected = viewer.clipping.selection.clip()
         await send(pipe, key, viewer, task)
         await eventually(lambda: not viewer.clipping.busy, task)
-        typ = False if key in "yw" else True if key in "YW" else "png" if key in "iP" else "geojson"
+        typ = False if key in "yY" else True if key in "tT" else "png" if key in "iI" else "geojson"
         assert paths[typ].exists(), viewer.message
         if typ in (False, True):
             assert paths[typ].read_text() == expected.to_text(ansi=typ) + "\n"
@@ -415,7 +431,7 @@ async def test_polygon_has_all_eight_export_bindings(rgb, tmp_path, monkeypatch,
             with Image.open(paths[typ]) as image:
                 assert image.mode == "RGBA"
         osc = [w for w in writes if w.startswith("\x1b]52;")]
-        assert bool(osc or images) == (key in ("y", "i", "Y", "j"))
+        assert bool(osc or images) == (key in ("y", "i", "t", "j"))
 
 
 async def test_polygon_enter_closes_then_allows_text_copy_and_keyboard_add(rgb, tmp_path):

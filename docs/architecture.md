@@ -159,7 +159,7 @@ are therefore typographically approximate outside half-block mode. PNG output
 has a separate output-pixel safety limit.
 
 `image_clip` writes binary PNGs atomically using the text-clip module's destination
-protections. The independent **i / P** copy/save bindings use the existing
+protections. The independent **i / I** copy/save bindings use the existing
 selection lifecycle and one clip-worker executor. Native image clipboard copying
 is attempted locally using platform helpers; OSC 52 cannot carry binary PNG
 clipboard content, so unsupported/remote sessions receive an explicit file-save
@@ -370,8 +370,13 @@ The channel list has focus-specific PageUp/PageDown and Home/End handling;
 canvas document navigation and bracket shortcuts are unchanged. Focus changes
 alone do not sample pixels. Enter solos any focused channel. Adaptive sidebar
 content reserves more rows for channels rather than increasing sidebar width.
-The ASCII shortcut M is a simple/no-color style preset, not an additional mode
-with a new numerical algorithm. In selection mode it rerenders cached preview
-samples at unchanged cell geometry and retains all identities/masks. Full-terminal
+`ModeNavigation` remembers the active colored renderer (detail/shape/simple/blocks)
+and a separate strict-ASCII ramp index. `m` restores or advances colored modes;
+`M` restores or advances classic/fine/bold ASCII variants of the existing simple
+renderer. Switching families preserves the last mode in each, with no one-shot
+restore flag. In selection, a cloned navigator and style-keyed cached frames
+rerender existing ViewSamples without another source read, leaving cell geometry
+and region identities/masks untouched. The viewer's normal style is restored after
+selection. Full-terminal
 name/file prompts use a conditional floating entry row, avoiding selection loss
 from a canvas resize. The normal viewer gains no additional UI rows.

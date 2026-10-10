@@ -93,8 +93,8 @@ class ChannelControl(UIControl):
             tool_help = (" Click first / Enter: close" if selection.kind == "polygon" else
                          " Drag / Space+arrows: box")
             hints = [tool_help, " a: add | s/v: switch/exit", " [/]: area | Del: remove",
-                     " Tab: corner / undo vertex", " y/w: text | i/P: PNG",
-                     " Y/W: ANSI | j/J: GeoJSON", " M: ASCII | n: rename", " Esc: done"]
+                     " Tab: corner / undo vertex", " y/Y: text | i/I: PNG",
+                     " t/T: ANSI | j/J: GeoJSON", " m: color | M: ASCII", " n: rename | Esc: done"]
             lines = [[("class:panel.title", " SELECTIONS")]]
             lines.extend([[("class:panel", text)] for text in hints[:max(0, height - 2)]])
             capacity = max(0, height - len(lines))
@@ -207,10 +207,15 @@ def clip_fragments(viewer: "Viewer") -> list:
         return [("", "["), button(copy_key, copy_action), ("", "/"),
                 button(save_key, save_action), ("", ("" if short else " " + label) + "] ")]
 
-    result = pair("y", "w", "txt", clip.submit, clip.save)
-    result += pair("i", "P", "png", clip.submit_image, lambda: clip.save(image=True))
-    result += pair("Y", "W", "ansi", lambda: clip.submit(ansi=True), lambda: clip.save(ansi=True))
+    result = pair("y", "Y", "txt", clip.submit, clip.save)
+    result += pair("i", "I", "png", clip.submit_image, lambda: clip.save(image=True))
+    result += pair("t", "T", "ansi", lambda: clip.submit(ansi=True), lambda: clip.save(ansi=True))
     result += pair("j", "J", "json", clip.submit_geojson, lambda: clip.save(geojson=True))
-    result += [button("[a+] ", clip.add_area), button("[n] ", clip.begin_name),
-               button("[M] ", clip.toggle_ascii), button("[Esc]", clip.end)]
+    # Keep the toolbar to one compact line even in a 45-column terminal.
+    extras = [("[a] ", clip.add_area), ("[n] ", clip.begin_name),
+              ("[m] ", lambda: clip.cycle_preview("color")),
+              ("[M] ", lambda: clip.cycle_preview("ascii")), ("[Esc]", clip.end)]
+    for label, action in extras:
+        if sum(len(fragment[1]) for fragment in result) + len(label) <= width:
+            result.append(button(label, action))
     return result

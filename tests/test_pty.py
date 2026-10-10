@@ -209,7 +209,7 @@ def test_real_terminal_rectangle_copy_and_clip_files(tmp_path, kind):
             assert "ALPHA one" in payload and "BETA two" in payload
         else:
             assert "▀" in payload and "\x1b" not in payload
-        terminal.send("W")
+        terminal.send("T")
         # File publication is asynchronous. Poll its explicit destination, not
         # transient status text which prompt_toolkit can render as screen diffs.
         deadline = time.monotonic() + 5
@@ -287,7 +287,7 @@ def test_terminal_mixed_regions_private_geojson_png_and_ascii(tmp_path):
         assert len({UUID(f["id"]) for f in features}) == 2
         assert all(UUID(f["id"]).version == 4 for f in features)
         assert source.name not in geo.read_text() and str(tmp_path) not in geo.read_text()
-        terminal.send("P")
+        terminal.send("I")
         saved(png)
         with PILImage.open(png) as image:
             assert image.mode == "RGBA"
@@ -295,11 +295,11 @@ def test_terminal_mixed_regions_private_geojson_png_and_ascii(tmp_path):
             absent = pixels[..., 3] == 0
             assert absent.any() and (pixels[..., 3] == 255).any()
             assert not pixels[absent, :3].any()
-        terminal.send("MW")
+        terminal.send("MT")
         saved(ansi)
         value = ansi.read_text()
         assert value.isascii() and "\x1b" not in value and value.strip()
-        terminal.send("w")
+        terminal.send("Y")
         saved(text)
         assert text.read_bytes() == ansi.read_bytes()
         terminal.send("sq")  # Switch adds a new empty rectangle; q always exits.

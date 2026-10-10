@@ -175,9 +175,12 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
                 else viewer.renderer.mode)
         viewer.change_renderer(color=color, mode=mode)
 
-    @bindings.add("m", filter=browsing)
+    @bindings.add("m", filter=idle)
     def mode(event: KeyPressEvent) -> None:
-        viewer.cycle_mode()
+        if viewer.selecting:
+            viewer.clipping.cycle_preview("color")
+        else:
+            viewer.cycle_mode()
 
     @bindings.add("b", filter=browsing)
     def blocks(event: KeyPressEvent) -> None:
@@ -248,9 +251,9 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
     @bindings.add("M", filter=idle)
     def plain_ascii(event):
         if viewer.selecting:
-            viewer.clipping.toggle_ascii()
+            viewer.clipping.cycle_preview("ascii")
         else:
-            viewer.toggle_ascii()
+            viewer.cycle_ascii()
 
     @bindings.add("n", filter=selecting)
     def name_geojson(event):
@@ -261,22 +264,22 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
         viewer.clipping.submit()
 
     @bindings.add("Y", filter=selecting)
-    def copy_ansi(event):
-        viewer.clipping.submit(ansi=True)
+    def save_text(event):
+        viewer.clipping.save()
 
     @bindings.add("i", filter=selecting)
     def copy_png(event):
         viewer.clipping.submit_image()
 
-    @bindings.add("P", filter=selecting)
+    @bindings.add("I", filter=selecting)
     def save_png(event):
         viewer.clipping.save(image=True)
 
-    @bindings.add("w", filter=selecting)
-    def save_text(event):
-        viewer.clipping.save()
+    @bindings.add("t", filter=selecting)
+    def copy_ansi(event):
+        viewer.clipping.submit(ansi=True)
 
-    @bindings.add("W", filter=selecting)
+    @bindings.add("T", filter=selecting)
     def save_ansi(event):
         viewer.clipping.save(ansi=True)
 

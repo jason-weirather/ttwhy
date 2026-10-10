@@ -394,13 +394,13 @@ async def test_selection_keyboard_and_save_freezes_exact_frame(rgb, tmp_path):
         selection = viewer.clipping.selection
         assert selection.bounds == (0, 2, 0, 3)
         expected = original.crop(0, 2, 0, 3)
-        await send(pipe, "+-rmt2c\x1b[<64;20;10M", viewer, task)
+        await send(pipe, "+-rb2c\x1b[<64;20;10M", viewer, task)
         assert viewer.viewport == camera and viewer.frame is original
         assert viewer.selected_channels == (0,)
         await send(pipe, "y", viewer, task)
         await eventually(lambda: out.exists() and not viewer.clipping.busy, task)
         assert out.read_text() == expected.to_text() + "\n"
-        await send(pipe, "W", viewer, task)
+        await send(pipe, "T", viewer, task)
         await eventually(lambda: ansi.exists() and not viewer.clipping.busy, task)
         assert ansi.read_text() == expected.to_text(ansi=True) + "\n"
         assert "+" in "".join(x[1] for x in selection.row(0))
@@ -435,7 +435,7 @@ async def test_save_prompt_does_not_resize_or_shift_selection(rgb, tmp_path):
     async with running(rgb[0], clipboard="off") as (viewer, pipe, _, task):
         await send(pipe, "s\x1b[H \x1b[C", viewer, task)
         frame, size, box = viewer.frame, viewer.canvas_size, viewer.clipping.selection.bounds
-        await send(pipe, "w", viewer, task)
+        await send(pipe, "Y", viewer, task)
         assert viewer.editing == "save-text" and viewer.selecting
         assert viewer.canvas_size == size and viewer.frame is frame
         assert viewer.clipping.selection.bounds == box
@@ -447,7 +447,7 @@ async def test_save_prompt_does_not_resize_or_shift_selection(rgb, tmp_path):
 
 async def test_save_prompt_cancel_and_bad_path_preserve_selection(rgb, tmp_path):
     async with running(rgb[0], source_path=rgb[0]) as (viewer, pipe, _, task):
-        await send(pipe, "s w", viewer, task)
+        await send(pipe, "s Y", viewer, task)
         assert viewer.editing == "save-text"
         await send(pipe, "\x01\x0b" + str(rgb[0]) + "\r", viewer, task)
         assert "input image" in viewer.message and viewer.editing == "save-text"
@@ -651,9 +651,9 @@ async def test_clip_worker_does_not_block_selection_and_coalesces_requests(rgb, 
         await send(pipe, "s\x1b[H \x1b[C", viewer, task)
         expected = viewer.clipping.selection.clip().to_text() + "\n"
         try:
-            pipe.send_text("w")
+            pipe.send_text("Y")
             await eventually(entered.is_set, task)
-            pipe.send_text("\x1b[Cww")
+            pipe.send_text("\x1b[CYY")
             await asyncio.sleep(.1)
             assert viewer.clipping.selection.cursor == (2, 0)
             assert len(calls) == 1 and viewer.clipping.busy
@@ -804,7 +804,7 @@ async def test_png_selection_keyboard_copies_and_saves_real_image(rgb, tmp_path,
         with Image.open(BytesIO(captured[0])) as actual:
             assert actual.size == (expected.shape[1]*12, expected.shape[0]*24)
         output.unlink()
-        await send(pipe, "P", viewer, task)
+        await send(pipe, "I", viewer, task)
         await eventually(lambda: output.exists() and not viewer.clipping.busy, task)
         assert output.read_bytes().startswith(b"\x89PNG")
         assert len(captured) == 1  # Save does not access clipboard.

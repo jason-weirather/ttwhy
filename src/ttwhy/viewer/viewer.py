@@ -22,11 +22,12 @@ from ..intensity_window import IntensityWindow
 from ..view_info import ReadBudgetExceeded
 from ..text_image import TextImage
 from ..terminal_capabilities import configured_color_depth
-from ..text_renderer import DEFAULT_RAMP, RENDER_MODES, TEXT_MODES, TextRenderer
+from ..text_renderer import DEFAULT_RAMP, TEXT_MODES, TextRenderer
 from ..view_session import ViewSamples, ViewSession
 from ..viewport import Viewport
 from .bindings import create_bindings
 from .clipping import ClipController
+from .mode_navigation import ModeNavigation
 from .controls import CanvasControl, ChannelControl, clip_fragments, navigation_fragments, safe_label
 from .rendering import FrameRequest, make_frame
 
@@ -63,7 +64,7 @@ class Viewer:
         self.text_mode = (self.renderer.mode if self.renderer.mode in TEXT_MODES else "detail")
         self.text_color = self.renderer.color
         self.simple_ramp = self.renderer.ramp
-        self._ascii_restore = None
+        self.mode_navigation = ModeNavigation.from_renderer(self.renderer)
         self.viewport = viewport
         self.frame: TextImage | None = None
         self.samples: ViewSamples | None = None
@@ -356,10 +357,9 @@ class Viewer:
         self.selected_channels = tuple(sorted(selected))
         self._set_viewport(self.viewport, limit=True)
 
-    def change_renderer(self, **changes) -> None:
+    def change_renderer(self, *, preserve_family: bool = False, **changes) -> None:
         if self.selecting:
             return
-        self._ascii_restore = None
         if "invert" in changes and self.navigation is not None:
             self.navigation.auto_invert = False
         options = {"mode": self.renderer.mode, "color": self.renderer.color,
@@ -370,40 +370,42 @@ class Viewer:
             options["ramp"] = (self.simple_ramp if options["mode"] in ("simple", "ascii")
                                else DEFAULT_RAMP)
         self.renderer = TextRenderer(**options)
-        if self.renderer.mode == "simple":
-            self.simple_ramp = self.renderer.ramp
+        if not preserve_family:
+            self.mode_navigation.observe(self.renderer)
+            if self.renderer.mode == "simple":
+                self.simple_ramp = self.renderer.ramp
         if self.renderer.mode in TEXT_MODES:
             self.text_mode = self.renderer.mode
             self.text_color = self.renderer.color
         self.message = {
             "detail": "Detail: spatial Braille, tone-balanced dots, no background tiles.",
             "shape": "Shape: artistic strokes and texture, not a segmentation.",
-            "simple": "Simple: the original ASCII density renderer.",
-            "blocks": "Blocks: original two-color half-block preview.",
+            "simple": "Simple: original ASCII density renderer.",
+            "blocks": "Blocks: two-color half-block preview.",
         }[self.renderer.mode]
         self._set_viewport(self.viewport, limit=True)
 
-    def toggle_ascii(self) -> None:
-        """Toggle plain ASCII as a style preset, not another numerical renderer."""
+    def cycle_mode(self) -> None:
+        """m: resume colored artwork, then cycle its four existing algorithms."""
         if self.selecting or self.editing is not None:
             return
-        if self._ascii_restore is not None:
-            restore = self._ascii_restore
-            self.change_renderer(**restore)
-            self.message = "Previous artwork restored."
-        else:
-            restore = {"mode": self.renderer.mode, "color": self.renderer.color,
-                       "ramp": self.renderer.ramp}
-            self.change_renderer(mode="simple", color=False)
-            self._ascii_restore = restore
-            self.message = "ASCII: plain characters, no color codes | M: restore"
+        self.mode_navigation.advance_color()
+        next_renderer = self.mode_navigation.make_renderer(self.renderer)
+        self.change_renderer(preserve_family=True, mode=next_renderer.mode,
+                             color=next_renderer.color, ramp=next_renderer.ramp)
+        self.message = f"Color {self.mode_navigation.label} | m: next | M: ASCII"
         self.application.invalidate()
 
-    def cycle_mode(self) -> None:
-        """Cycle text modes, including half-blocks only when color is enabled."""
-        modes = RENDER_MODES if self.renderer.color else TEXT_MODES
-        index = modes.index(self.renderer.mode)
-        self.change_renderer(mode=modes[(index + 1) % len(modes)])
+    def cycle_ascii(self) -> None:
+        """M: enter strict ASCII, then cycle classic/fine/bold density vocabularies."""
+        if self.selecting or self.editing is not None:
+            return
+        self.mode_navigation.advance_ascii()
+        next_renderer = self.mode_navigation.make_renderer(self.renderer)
+        self.change_renderer(preserve_family=True, mode=next_renderer.mode,
+                             color=False, ramp=next_renderer.ramp)
+        self.message = f"{self.mode_navigation.label} | M: next | m: color"
+        self.application.invalidate()
 
     def toggle_blocks(self) -> None:
         """Temporarily show the original half-block preview; remember text style."""
@@ -539,7 +541,9 @@ class Viewer:
             level += " extent-fit"
         size = self.session.info.pixel_size
         calibration = "uncalibrated" if size is None else f"{size[0]:g} x {size[1]:g} {size[2]}/px"
-        return (f" {'loading' if self.busy else 'ready'} | L{level} | {self.renderer.mode} "
+        mode_label = (self.mode_navigation.label if self.mode_navigation.family == "ascii"
+                      else self.renderer.mode)
+        return (f" {'loading' if self.busy else 'ready'} | L{level} | {mode_label} "
                 f"| x={view.x + view.width / 2:,.0f} y={view.y + view.height / 2:,.0f} "
                 f"| {view.width / max(1, self.canvas_size[0]):.2f} px/col | {calibration}")
 
@@ -551,9 +555,9 @@ class Viewer:
 
     def _footer_text(self) -> str:
         if self.show_help:
-            return (" | m: mode | M: ASCII | t: color | q: quit\n"
+            return (" | m: color | M: ASCII | t: toggle color | q: quit\n"
                     " Arrows: pan | +/-: zoom | r: fit | Tab: channels | l/u/g: limits | ?: less")
-        return " | m:mode M:ASCII ?:help q:quit\n " + safe_label(self.message)
+        return " | m:color M:ASCII ?:help q:quit\n " + safe_label(self.message)
 
     def __repr__(self) -> str:
         return (f"Viewer(channels={self.selected_channels}, mode={self.renderer.mode!r}, "

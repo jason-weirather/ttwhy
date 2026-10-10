@@ -114,9 +114,9 @@ def main(
 
     Wheel/+/- zoom, arrows or mouse drag pan, c toggles the channel panel.
     PgUp/PgDn or [/] flip PDF pages/OME series; p jumps to a specific page/series.
-    l/u/g edit limits and gamma; m cycles render modes; b toggles blocks; ? shows help.
+    l/u/g edit limits and gamma; m cycles colored modes; M cycles ASCII ramps; b toggles blocks; ? shows help.
     s selects a rectangle; v starts a polygon; j copies GeoJSON; J saves it.
-    y copies text, i copies PNG image; P saves PNG artwork.
+    Selection: y/Y text, i/I PNG, t/T ANSI, j/J GeoJSON (copy/save).
     """
     if (lower is None) != (upper is None):
         raise click.UsageError("--lower and --upper must be supplied together")
