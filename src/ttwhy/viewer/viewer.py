@@ -24,7 +24,8 @@ from ..text_renderer import DEFAULT_RAMP, RENDER_MODES, TEXT_MODES, TextRenderer
 from ..view_session import ViewSamples, ViewSession
 from ..viewport import Viewport
 from .bindings import create_bindings
-from .controls import CanvasControl, ChannelControl, navigation_fragments, safe_label
+from .clipping import ClipController
+from .controls import CanvasControl, ChannelControl, clip_fragments, navigation_fragments, safe_label
 from .rendering import FrameRequest, make_frame
 
 
@@ -47,6 +48,8 @@ class Viewer:
         renderer: TextRenderer | None = None,
         viewport: Viewport | None = None,
         navigation=None,
+        source_path=None, output_text_clip=None, output_ansi_clip=None,
+        clipboard="auto", clip_source="auto", clip_overwrite=True,
     ) -> None:
         self.session = session
         self.navigation = navigation
@@ -75,12 +78,23 @@ class Viewer:
         self.application: Application | None = None
         self.canvas = CanvasControl(self)
         self.channel_control = ChannelControl(self)
+        self.clipping = ClipController(
+            self, source_path=source_path, output_text_clip=output_text_clip,
+            output_ansi_clip=output_ansi_clip, clipboard=clipboard,
+            clip_source=clip_source, clip_overwrite=clip_overwrite,
+        )
         self.entry = TextArea(
             multiline=False, height=1, accept_handler=self._accept_edit,
             prompt=self._entry_prompt, style="class:entry",
         )
 
+    @property
+    def selecting(self) -> bool:
+        return self.clipping.selection is not None
+
     def _entry_prompt(self) -> str:
+        if self.editing in ("save-text", "save-ansi"):
+            return " Save clip to file (Enter / Esc): "
         if self.editing == "destination" and self.navigation is not None:
             doc = self.navigation.document
             return f" Go to {doc.label} ({doc.first_index}..{doc.last_index}; Enter / Esc): "
@@ -109,8 +123,9 @@ class Viewer:
             ),
             body,
             Window(FormattedTextControl(self._status), height=1, style="class:status"),
+            Window(FormattedTextControl(self._footer),
+                   height=lambda: 1 if self.editing is not None else 2, style="class:footer"),
             ConditionalContainer(self.entry, filter=Condition(lambda: self.editing is not None)),
-            Window(FormattedTextControl(self._footer), height=2, style="class:footer"),
         ])
         return Application(
             layout=Layout(container, focused_element=self.canvas),
@@ -123,6 +138,9 @@ class Viewer:
                 "panel.selected": "bg:#31415b #ffffff bold", "divider": "#405570",
                 "status": "bg:#253247 #d7e1f0", "footer": "bg:#141c29 #a8b7cc",
                 "entry": "bg:#394a63 #ffffff",
+                "clip.border": "bg:#ffd75f #000000 bold",
+                "clip.cursor": "bg:#ffffff #000000 bold reverse",
+                "clip.button": "bg:#31415b #ffffff bold",
             }),
         )
 
@@ -146,6 +164,7 @@ class Viewer:
                 if self.navigation is not None:
                     await self.navigation.stop()
             finally:
+                self.clipping.close()
                 self._executor.shutdown(wait=True, cancel_futures=True)
                 self._executor = None
                 self._pending = None
@@ -158,6 +177,8 @@ class Viewer:
         while True:
             await self._wake.wait()
             self._wake.clear()
+            if self.selecting:
+                continue  # Keep displayed cells and PDF coordinates stable during selection.
             if self.navigation is not None:
                 self.navigation.install_pending()
             request, self._pending = self._pending, None
@@ -172,7 +193,7 @@ class Viewer:
             except Exception as error:
                 self.application.exit(exception=error)
                 return
-            if request.generation != self.generation:
+            if request.generation != self.generation or self.selecting:
                 continue
             self.frame, self.samples = result.frame, result.samples
             self.cell_lines = result.lines
@@ -189,7 +210,7 @@ class Viewer:
                 self.navigation.frame_displayed()
 
     def request_frame(self) -> None:
-        if self.viewport is None or not all(self.canvas_size) or self._wake is None:
+        if self.selecting or self.viewport is None or not all(self.canvas_size) or self._wake is None:
             return
         self.generation += 1
         columns, rows = self.canvas_size
@@ -202,6 +223,9 @@ class Viewer:
     def resize_canvas(self, columns: int, rows: int) -> None:
         if columns < 1 or rows < 1 or (columns, rows) == self.canvas_size:
             return
+        if self.selecting:
+            self.clipping.end(message="Selection cleared after resize; select the new frame.",
+                              resume=False)
         previous = self.canvas_size
         self.canvas_size = (columns, rows)
         if self.viewport is None:
@@ -219,6 +243,8 @@ class Viewer:
             self._set_viewport(self.viewport, limit=True)
 
     def _set_viewport(self, viewport: Viewport, *, limit: bool = False) -> None:
+        if self.selecting:
+            return
         rows, columns = self.renderer.sample_shape(columns=self.canvas_size[0],
                                                    rows=self.canvas_size[1])
         viewport = viewport.centered_within(self.session.info.shape)
@@ -240,6 +266,8 @@ class Viewer:
         self.request_frame()
 
     def fit(self) -> None:
+        if self.selecting:
+            return
         if not all(self.canvas_size):
             return
         viewport, limited = self.session.fit(
@@ -252,6 +280,8 @@ class Viewer:
         self.request_frame()
 
     def zoom(self, factor: float, *, anchor: Sequence[float] = (0.5, 0.5)) -> None:
+        if self.selecting:
+            return
         if self.viewport is not None:
             candidate = self.viewport.zoom(factor, anchor=anchor)
             # Extreme magnification adds no information and risks loss of
@@ -264,22 +294,30 @@ class Viewer:
             self._set_viewport(candidate)
 
     def pan_cells(self, dx: float, dy: float) -> None:
+        if self.selecting:
+            return
         if self.viewport is not None:
             self.message = ""
             self._set_viewport(self.viewport.pan(dx * self.viewport.width / self.canvas_size[0],
                                                 dy * self.viewport.height / self.canvas_size[1]))
 
     def focus_channel(self, delta: int) -> None:
+        if self.selecting:
+            return
         self.focused_channel = min(len(self.windows) - 1, max(0, self.focused_channel + delta))
         self.application.invalidate()
 
     def select_one(self, index: int) -> None:
+        if self.selecting:
+            return
         if index < len(self.windows):
             self.focused_channel = index
             self.selected_channels = (index,)
             self._set_viewport(self.viewport, limit=True)
 
     def toggle_channel(self) -> None:
+        if self.selecting:
+            return
         selected = set(self.selected_channels)
         if self.focused_channel in selected:
             if len(selected) == 1:
@@ -293,6 +331,8 @@ class Viewer:
         self._set_viewport(self.viewport, limit=True)
 
     def change_renderer(self, **changes) -> None:
+        if self.selecting:
+            return
         if "invert" in changes and self.navigation is not None:
             self.navigation.auto_invert = False
         options = {"mode": self.renderer.mode, "color": self.renderer.color,
@@ -330,6 +370,8 @@ class Viewer:
             self.change_renderer(mode="blocks", color=True)
 
     def auto_window(self) -> None:
+        if self.selecting:
+            return
         index = self.focused_channel
         if self.samples is None or index not in self.samples.plan.channels:
             self.message = "Select the focused channel and wait for its image before auto contrast."
@@ -352,6 +394,8 @@ class Viewer:
         self.application.invalidate()
 
     def begin_edit(self, field: str) -> None:
+        if self.selecting:
+            return
         window = self.windows[self.focused_channel]
         if window is None:
             self.message = "Select this channel and wait for its initial image before editing."
@@ -364,6 +408,8 @@ class Viewer:
         self.application.invalidate()
 
     def begin_destination(self) -> None:
+        if self.selecting:
+            return
         if self.navigation is None:
             self.message = "Page/series navigation is available for PDF and OME-TIFF files."
             self.application.invalidate()
@@ -375,6 +421,8 @@ class Viewer:
         self.application.invalidate()
 
     def step_destination(self, delta: int) -> None:
+        if self.selecting:
+            return
         if self.navigation is not None:
             self.navigation.step(delta)
         else:
@@ -382,6 +430,9 @@ class Viewer:
             self.application.invalidate()
 
     def _accept_edit(self, buffer: Buffer) -> bool:
+        if self.editing in ("save-text", "save-ansi"):
+            self.clipping.accept_path(buffer.text, ansi=self.editing == "save-ansi")
+            return True
         if self.editing == "destination":
             try:
                 destination = self.navigation.document.validate_index(int(buffer.text.strip()))
@@ -417,6 +468,8 @@ class Viewer:
                 f"| {'RGB' if info.is_rgb else str(len(info.channels)) + ' channels'}")
 
     def _status(self) -> str:
+        if self.selecting:
+            return " " + self.clipping.status()
         if self.viewport is None:
             return " Opening image..."
         view = self.viewport
@@ -429,7 +482,13 @@ class Viewer:
                 f"| x={view.x + view.width / 2:,.0f} y={view.y + view.height / 2:,.0f} "
                 f"| {view.width / max(1, self.canvas_size[0]):.2f} px/col | {calibration}")
 
-    def _footer(self) -> str:
+    def _footer(self):
+        buttons = clip_fragments(self)
+        if self.selecting:
+            return [*buttons, ("", "\n " + safe_label(self.message))]
+        return [*buttons, ("", self._footer_text())]
+
+    def _footer_text(self) -> str:
         if self.navigation is not None and not self.show_help:
             return (" q quit | +/- zoom | [/] or PgUp/PgDn pages/series | p jump | ? help\n "
                     + safe_label(self.message))

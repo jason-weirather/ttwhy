@@ -241,3 +241,54 @@ More glyph modes, overlays, and other terminal frontends should share `TextImage
 and the normalized image pipeline, not add independent contrast semantics. Vendor
 formats should only be added after their reader-level region/pyramid contracts are
 verified. Input conversion support alone is not evidence of interactive read support.
+
+## Rectangle selection and clip delivery
+
+`TextImage.crop(y0, y1, x0, x1)` is a file-free, framework-free exact copy of a
+nonempty half-open cell rectangle, including its foreground/background arrays.
+It never re-renders or includes the selection overlay. `viewer/selection.py`
+contains the cell cursor/anchor and outline painting; `viewer/clipping.py` owns
+selection lifecycle and explicit delivery. No alternate image reader, additional
+full-image raster, GUI clipboard dependency, or change to ViewSession is added.
+
+Selection starts only on a completed current frame. Its small TextImage and
+pixel-edge viewport are frozen together; camera/style/navigation controls are
+inactive. The display pump and DocumentNavigation defer source handoffs while
+selecting, while the normal PDF cache can accept completed refinement jobs.
+Ending selection wakes the pump, allowing the best pending source to be installed.
+Canvas resize cancels the rectangle; path entry reuses a footer row and does not
+change canvas geometry. Mouse release on a toolbar button is not treated as Copy
+unless the press also began on that button.
+
+Native PDF text copying maps selected terminal-cell edges into the displayed
+base raster, clips letterboxing, and uses FPDF_DeviceToPage's affine transform
+with the actual raster dimensions and the same additional rotation (zero) used
+by the PDF renderer. Rotation and nonzero/cropped page origins are therefore not
+approximated by a hand-written y-flip or assumed DPI ratio. `pdf_text.py` opens
+native text handles under PDF_LOCK, extracts bounded text and closes them before
+return. It does not render pixels, run OCR, reconstruct paragraphs or infer words
+from the terminal glyphs. An input-file stamp guards against copying text from a
+PDF replaced/modified on disk after opening.
+
+A single lazy clip executor performs extraction, optional local helper calls and
+atomic file writes. Each accepted operation captures immutable clip content and
+page coordinates before submission, so later changes cannot alter that clip.
+Repeated copy/save keys while busy do not create a queue. Shutdown joins accepted
+work; OSC output is emitted only from the event loop while the application is
+running, using its Output rather than global stdout. There are no clipboard-read
+queries or automatic clipboard/file writes on selection.
+
+`text_clip.py` implements explicit UTF-8 file publication and clipboard transport.
+Auto optionally tries a local clipboard helper, otherwise uses ordinary OSC 52.
+SSH/multiplexers use OSC directly rather than writing a remote desktop clipboard.
+It does not change terminal security preferences or enable tmux passthrough.
+OSC sends are unacknowledged and the status says so. The 64 KiB raw UTF-8 payload
+limit is an application safeguard, not a universal terminal capability promise.
+Clipboard failure cannot erase an already-successful file save. Input aliases,
+output symlinks and nonregular files are rejected before and immediately before
+atomic publication; no-overwrite uses exclusive hard-link publication.
+
+The existing PDF process finalizer is additionally shielded against cancellation
+arriving during its normal successful cleanup. Awaited process joins and pipe
+reception must complete even after repeated cancellation; merely awaiting a
+TaskGroup is insufficient when a child's own finalizer was interrupted.

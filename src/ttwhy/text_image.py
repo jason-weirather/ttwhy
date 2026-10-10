@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from numbers import Integral
 
 import numpy as np
 from numpy.typing import NDArray
@@ -64,6 +65,22 @@ class TextImage:
     def nbytes(self) -> int:
         return sum(x.nbytes for x in (self.characters, self.foreground, self.background)
                    if x is not None)
+
+    def crop(self, y0: int, y1: int, x0: int, x1: int) -> "TextImage":
+        """Own an exact rectangular cell clip, including its original RGB styles.
+
+        Bounds are zero-based and half-open. No trimming, rerendering, selection
+        border, UI chrome or terminal cursor sequences are included.
+        """
+        edges = (y0, y1, x0, x1)
+        if any(isinstance(v, (bool, np.bool_)) or not isinstance(v, Integral) for v in edges):
+            raise TypeError("Clip edges must be integer cell indices")
+        if not (0 <= y0 < y1 <= self.shape[0] and 0 <= x0 < x1 <= self.shape[1]):
+            raise ValueError("Clip must be a nonempty rectangle within the text image")
+        region = (slice(y0, y1), slice(x0, x1))
+        return type(self)(self.characters[region],
+                          foreground=None if self.foreground is None else self.foreground[region],
+                          background=None if self.background is None else self.background[region])
 
     def iter_runs(self, row: int) -> Iterator[CellRun]:
         """Yield style runs for one row without exposing a framework dependency."""

@@ -107,6 +107,7 @@ class DocumentNavigation:
         index = self.document.validate_index(index)
         if self._closed or index == self.target:
             return
+        self.viewer.clipping.end(message="Selection cleared for document navigation.", resume=False)
         self.target = index
         self._epoch += 1
         self.error = ""
@@ -190,6 +191,8 @@ class DocumentNavigation:
 
     def install_pending(self) -> None:
         """Called only by the render pump, after its previous read has completed."""
+        if self.viewer.selecting:
+            return  # Background pyramids may finish, but displayed selection stays frozen.
         item, self.pending = self.pending, None
         if item is None:
             return

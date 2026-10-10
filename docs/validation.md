@@ -331,3 +331,90 @@ versions, large production OME series and complex real-world PDFs were not teste
 The standalone Ruff executable was unavailable. Snapshot and array-renderer
 regressions, source lifetime tests and actual synthetic PDF/OME integrations were
 run. No claim of diagnostic color management or unrestricted vector zoom is made.
+
+## Rectangle selection, PDF text and clip delivery (October 2026)
+
+This patch targets the supplied `1faa6c04ce11433736dff2e4678a0ca694338530`
+snapshot. All 48 reconstructed baseline files matched their declared byte sizes.
+The PDF default remains 600 DPI. Dependencies, Python minimum, package version,
+image sampling/pyramid algorithms and normal rendering algorithms are unchanged.
+
+### Executed checks
+
+**394 tests passed across split runs: 380 non-PTY tests and 14 POSIX terminal
+tests.** The final non-PTY run reports **92% statement coverage**. Tests include
+all original 314 tests plus 80 new tests/parameterized cases. Terminal tests were
+split into shorter invocations for the execution environment's command deadline;
+coverage does not instrument the spawned terminal/PDF processes. Python 3.13's
+forkpty warnings come from the multithreaded test harness, not application errors.
+
+New checks exercise exact Unicode/space-preserving TextImage crops; immutable
+foreground/background ownership; drag direction and inclusive endpoints; keyboard
+anchors, Shift+arrows, corner swapping and clamping; border exclusion; actual
+mouse/keyboard interaction; clickable buttons; Ctrl-C copy rather than quit in
+selection mode; stable Save prompts; terminal resize invalidation; PDF refinement
+handoffs deferred until selection ends; copied content pinned while an async save
+runs; one outstanding clip operation; and immediate-quit save completion.
+
+Independent two-page standard-font PDF fixtures cover 0/90/180/270-degree page
+rotation, nonzero origins, fractional page dimensions, CropBox offsets and the
+144/300/600 DPI coordinate grids. Rectangle extraction uses real PDFium, compared
+with independently calculated coordinate transforms and literal expected words.
+Tests verify page changes, missing text layers, explicit screen-glyph copying,
+changed-on-disk rejection, and no extra raster/cache files during extraction.
+
+File-delivery tests cover UTF-8/LF output, preserved rectangular spaces, atomic
+replacement, no-overwrite, input and hard-link aliases, output symlinks, symlinked
+directory components, nonregular files, missing directories, and rechecking a
+destination that becomes an input symlink during publication. Clipboard tests
+check exact base64 payloads, write-only OSC 52, byte limits without truncation,
+helper selection and encoding, no shell evaluation, timeout fallback, remote/
+multiplexer routing, and successful file saves despite clipboard failure.
+The native-helper unit tests simulate process invocation; they do not change a
+real macOS, Windows, X11 or Wayland clipboard.
+
+Actual CLI PTY tests open PNG and PDF files, select and copy rectangles, decode
+the emitted OSC 52 to compare the exact clip, verify explicit text and ANSI files,
+and check clean exit/alternate-screen/mouse/cursor restoration. These prove emitted
+protocol bytes and files, not acceptance by a particular desktop terminal.
+
+### Existing shutdown race reproduced and fixed
+
+The baseline non-PTY run reproduced a failure in the existing real PDF navigation/
+rapid-quit test: a PDF process could remain tracked after its normal successful
+cleanup was cancelled. TaskGroup alone did not prevent interruption inside an
+awaited finalizer. This patch shields the entire process/pipe finalizer and waits
+through repeated cancellation. A new actual-worker regression test cancels twice
+while successful cleanup is deliberately paused, then verifies the child is reaped.
+The existing real PDF navigation/rapid-quit test passes with this fix.
+
+### Visual and packaging checks
+
+A generated PDF page and the actual prompt_toolkit rendered screen were inspected
+as PNGs. The screen inspection reconstructed the application's final character/
+style grid using a local monospace font and exact half-block colors. The outline,
+active corner, selection help and buttons were checked. Selecting the first text
+region exported `ALPHA one` while excluding the other line and right-hand text.
+This is a reconstruction of actual UI output, not a native terminal screenshot.
+Fixtures, inspection PNGs and fonts are not bundled in the patch or package.
+
+All 44 Python source/test/example modules pass Python 3.11 grammar parsing.
+Wheel and source-distribution construction use the installed setuptools backend.
+The final patch is also applied and tested against a fresh baseline reconstruction.
+
+### Environment and limits
+
+Linux/Python 3.13.5; NumPy 2.3.5, SciPy 1.17.0, Pillow 12.3.0, pypdfium2 5.8.0,
+tifffile 2026.5.15, prompt_toolkit 3.0.52, pytest 9.0.2, setuptools 82.0.1.
+Integration uses the actual Omeify 0.21.0 source from the available `6d9f5ff`
+snapshot, not an imitation of its Image API. All reconstructed Omeify Python
+source files used here matched their declared byte sizes; this does not verify
+its separately published wheel.
+
+An actual Python 3.11 runtime, minimum supported PDFium version, native desktop
+clipboard, live SSH/tmux/Screen transport, and real macOS/Windows terminals were
+not exercised. Ruff and the `build` CLI frontend were unavailable. No OCR or
+layout-analysis capability is claimed. Invisible/badly encoded/OCR text layers
+can differ from visible lettering; extraction preserves PDFium's text-layer order,
+not a guaranteed visual reading order. OSC 52 remains terminal-policy-dependent
+and unacknowledged; file saving is the portable explicit fallback.

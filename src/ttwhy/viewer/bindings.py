@@ -13,7 +13,9 @@ if TYPE_CHECKING:
 
 def create_bindings(viewer: "Viewer") -> KeyBindings:
     bindings = KeyBindings()
-    browsing = Condition(lambda: viewer.editing is None)
+    idle = Condition(lambda: viewer.editing is None)
+    browsing = Condition(lambda: viewer.editing is None and not viewer.selecting)
+    selecting = Condition(lambda: viewer.editing is None and viewer.selecting)
 
     @bindings.add("c-q", eager=True)
     def quit_always(event: KeyPressEvent) -> None:
@@ -23,16 +25,23 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
     def interrupt(event: KeyPressEvent) -> None:
         if viewer.editing is not None:
             viewer.cancel_edit()
+        elif viewer.selecting:
+            viewer.clipping.submit()
         else:
             event.app.exit()
 
-    @bindings.add("q", filter=browsing)
+    @bindings.add("q", filter=idle)
     def quit_viewer(event: KeyPressEvent) -> None:
         event.app.exit()
 
     @bindings.add("escape", eager=True)
     def cancel(event: KeyPressEvent) -> None:
-        viewer.cancel_edit()
+        if viewer.editing is not None:
+            viewer.cancel_edit()
+        elif viewer.selecting:
+            viewer.clipping.end()
+        else:
+            viewer.cancel_edit()
 
     @bindings.add("c", filter=browsing)
     def panel(event: KeyPressEvent) -> None:
@@ -143,5 +152,53 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
     def help_message(event: KeyPressEvent) -> None:
         viewer.show_help = not viewer.show_help
         event.app.invalidate()
+
+    @bindings.add("s", filter=idle)
+    def selection_mode(event: KeyPressEvent) -> None:
+        viewer.clipping.toggle()
+
+    def selection_move(dx, dy, extend=False):
+        def move(event):
+            viewer.clipping.move(dx, dy, extend=extend)
+        return move
+
+    for key, (dx, dy) in (("left", (-1, 0)), ("right", (1, 0)),
+                          ("up", (0, -1)), ("down", (0, 1))):
+        bindings.add(key, filter=selecting)(selection_move(dx, dy))
+        bindings.add("s-" + key, filter=selecting)(selection_move(dx, dy, True))
+
+    @bindings.add(" ", filter=selecting)
+    def mark_corner(event):
+        viewer.clipping.mark()
+
+    @bindings.add("tab", filter=selecting)
+    def swap_corner(event):
+        viewer.clipping.swap_corner()
+
+    def edge(end=False, extend=False):
+        def move(event):
+            viewer.clipping.edge(end=end, extend=extend)
+        return move
+
+    for key, last in (("home", False), ("end", True)):
+        bindings.add(key, filter=selecting)(edge(last))
+        bindings.add("s-" + key, filter=selecting)(edge(last, True))
+
+    @bindings.add("enter", filter=selecting)
+    @bindings.add("y", filter=selecting)
+    def copy_text(event):
+        viewer.clipping.submit()
+
+    @bindings.add("Y", filter=selecting)
+    def copy_ansi(event):
+        viewer.clipping.submit(ansi=True)
+
+    @bindings.add("w", filter=selecting)
+    def save_text(event):
+        viewer.clipping.save()
+
+    @bindings.add("W", filter=selecting)
+    def save_ansi(event):
+        viewer.clipping.save(ansi=True)
 
     return bindings

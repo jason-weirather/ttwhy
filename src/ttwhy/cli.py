@@ -14,6 +14,7 @@ from .pdf_workers import DEFAULT_PDF_MAX_DPI, pdf_dpi_steps
 from .intensity_window import IntensityWindow
 from .terminal_capabilities import available_color_depth, resolve_auto_mode
 from .text_renderer import RENDER_MODES, TextRenderer
+from .text_clip import CLIPBOARD_MODES, CLIP_SOURCES
 from .view_session import ViewSession
 from .viewport import Viewport
 
@@ -83,8 +84,16 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
 @click.option("--ansi", is_flag=True, help="Allow ANSI color escape sequences in a snapshot.")
 @click.option("--output-path", "-o", type=click.Path(dir_okay=False, path_type=Path),
               help="Snapshot destination; omitted means stdout. Requires --snapshot.")
+@click.option("--output-text-clip", type=click.Path(dir_okay=False, path_type=Path),
+              help="Interactive Copy/Save destination for the latest text clip; no file until used.")
+@click.option("--output-ansi-clip", type=click.Path(dir_okay=False, path_type=Path),
+              help="Interactive ANSI artwork clip destination, preserving rendered block colors.")
+@click.option("--clipboard", type=click.Choice(CLIPBOARD_MODES), default=None,
+              help="Copy transport: auto (local helper or OSC 52), osc52, or off (save only).")
+@click.option("--clip-source", type=click.Choice(CLIP_SOURCES), default=None,
+              help="Text clips: auto (embedded PDF words, otherwise screen glyphs) or screen.")
 @click.option("--no-overwrite", is_flag=True,
-              help="Refuse to replace an existing snapshot destination.")
+              help="Refuse to replace an existing snapshot or clip destination.")
 def main(
     input_path: Path, series: int, page: int | None, frame_index: int | None,
     pdf_max_dpi: float | None, pdf_cache_pages: int | None,
@@ -93,20 +102,26 @@ def main(
     cell_aspect: float, region: tuple[float, ...] | None, cache_mib: float,
     max_read_pixels: int, snapshot: bool, columns: int, rows: int, ansi: bool,
     output_path: Path | None, no_overwrite: bool,
+    output_text_clip: Path | None, output_ansi_clip: Path | None,
+    clipboard: str | None, clip_source: str | None,
 ) -> None:
     """Explore OME-TIFF, ordinary images, or a PDF page as zoomable terminal text.
 
     Wheel/+/- zoom, arrows or mouse drag pan, c toggles the channel panel.
     PgUp/PgDn or [/] flip PDF pages/OME series; p jumps to a specific page/series.
     l/u/g edit limits and gamma; m cycles render modes; b toggles blocks; ? shows help.
+    s selects a rectangle; y copies text, Y copies ANSI artwork, w/W save clips.
     """
     if (lower is None) != (upper is None):
         raise click.UsageError("--lower and --upper must be supplied together")
-    if not snapshot and (output_path is not None or ansi or no_overwrite):
-        raise click.UsageError("--output-path, --ansi and --no-overwrite require --snapshot")
+    if not snapshot and (output_path is not None or ansi):
+        raise click.UsageError("--output-path and --ansi require --snapshot")
+    if snapshot and any(v is not None for v in
+                        (output_text_clip, output_ansi_clip, clipboard, clip_source)):
+        raise click.UsageError("Clip options apply only to interactive viewing")
     if snapshot and pdf_cache_pages is not None:
         raise click.UsageError("--pdf-cache-pages applies only to interactive PDF viewing")
-    if no_overwrite and output_path is None:
+    if snapshot and no_overwrite and output_path is None:
         raise click.UsageError("--no-overwrite requires --output-path")
     if snapshot and color is True and not ansi:
         raise click.UsageError("Colored snapshots require --ansi")
@@ -157,7 +172,9 @@ def main(
                 pdf_max_dpi=pdf_max_dpi, pdf_cache_pages=pdf_cache_pages, background=matte,
                 channels=channels, window=window, mode=mode, color=use_color, invert=invert,
                 cell_aspect=cell_aspect, viewport=viewport, cache_mib=cache_mib,
-                max_read_pixels=max_read_pixels,
+                max_read_pixels=max_read_pixels, output_text_clip=output_text_clip,
+                output_ansi_clip=output_ansi_clip, clipboard=clipboard or "auto",
+                clip_source=clip_source or "auto", clip_overwrite=not no_overwrite,
             ))
             return
         if kind != "pdf" and pdf_max_dpi is not None:

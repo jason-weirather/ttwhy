@@ -163,8 +163,125 @@ maximum DPI, with no workers or neighbor prefetch. `--pdf-cache-pages` applies o
 to interactive PDF viewing. PDF `--region` coordinates use the initial preview
 pixel grid (up to 144 DPI), also for snapshots, and are mapped to the final raster.
 PDF DPI does not invent microscopy calibration. Page rotation, rendered annotations,
-and available form appearances are included. Text search/selection, password entry,
-PDF editing and interactive form filling are not implemented.
+and available form appearances are included. Rectangle text copying is described below. Text search, password entry, PDF editing
+and interactive form filling are not implemented.
+
+### Rectangle selection and text clips
+
+Press **`s`** or click **[s: Select]** in the footer. Drag a rectangle with the
+left mouse button. The highlighted outline and cursor are UI overlays only:
+copying never includes the border, sidebar, title, or status text.
+
+For keyboard selection, use the arrows to position the cursor, press **Space**
+to anchor the first corner, then use the arrows to extend the box. **Shift+arrows**
+can also start/extend a box, and **Tab** swaps the active corner. **Home/End** move
+to the canvas's first/last cell. Both endpoint cells are included; rectangles
+work in either drag direction. The sidebar and status show the current controls,
+source type, and rectangle size.
+
+| While selecting | Action |
+|---|---|
+| `y`, Enter, or Ctrl-C; **Copy** button | Copy text, also saving it when a text-clip destination is configured. |
+| `w`; **Save** button | Save text without touching the clipboard; prompt for a path when none is configured. |
+| `Y`; **ANSI** button | Copy the selected terminal artwork as raw ANSI-colored text. |
+| `W`; **Save ANSI** button | Save the selected terminal artwork, preserving foreground/background colors. |
+| `s` or Escape; **Done** button | Close the selection and resume viewing. |
+| `q` or Ctrl-Q | Quit. Ctrl-C during a path/numeric prompt cancels only that prompt. |
+
+The displayed frame is **frozen while selecting**. Zoom, pan, channel changes,
+and page/series navigation are inactive until you finish selection. PDF workers
+may finish and cache better detail, but source replacement waits until selection
+ends. This keeps the copied rectangle attached to precisely what you selected.
+A terminal/canvas resize clears the selection rather than exporting hidden or
+shifted cells. Save prompts reuse a footer row, so opening a prompt does not
+resize the image or shift the rectangle. No additional PDF raster is created
+for selection; it borrows the already-rendered, small immutable TextImage.
+
+**There are two kinds of text.** With the default `--clip-source auto`, file-backed
+PDF viewing copies the PDF's **embedded words** within the rectangle. It maps the
+selected cell edges through the frozen viewport to the PDF page using PDFium's
+own coordinate transform, including page rotation and CropBox offsets. The
+current DPI does not limit text extraction. This uses the already-optional PDF
+extra, with native handles serialized under the existing PDF lock and no bitmap
+allocation. Text order, spacing, ligatures, and Unicode mappings follow the PDF
+text layer/PDFium; this is not paragraph reconstruction or table extraction.
+Invisible/OCR text layers can differ from what the page appears to show. This
+feature is not a redaction or visibility-verification tool.
+
+For PNG/JPEG/WebP/OME-TIFF and borrowed-image `Viewer(session)`, text means the
+**literal rendered terminal characters**, with exact rectangular whitespace.
+No OCR runs on images or scanned PDF pages. If a PDF rectangle has no embedded
+text, copying reports that fact and leaves both the clipboard and output file
+untouched; it does not silently substitute block characters. Use
+`--clip-source screen` to deliberately copy terminal glyphs instead of PDF words.
+**`Y`/`W` always export screen artwork**, regardless of input type.
+
+Plain-text copying does not preserve colors. This matters especially in `blocks`
+mode, where much of the picture lives in the foreground/background colors, not
+in the repeated `▀` glyph. ANSI clips preserve the same character and color
+arrays without re-rendering. They are raw escape-coded UTF-8 text, **not** an
+image or rich HTML/RTF clipboard format; ordinary editors may show escape codes.
+A supporting terminal can display a saved trusted clip with `cat detail.ansi`.
+
+```bash
+ttwhy document.pdf                          # s, drag, y: copy embedded words
+ttwhy document.pdf --output-text-clip excerpt.txt
+
+ttwhy document.pdf --clipboard off --output-text-clip excerpt.txt
+# s, drag, y or w: file only; no clipboard access
+
+ttwhy photograph.jpg --output-ansi-clip detail.ansi
+# s, drag, W: save the selected colored terminal artwork
+
+ttwhy document.pdf --clip-source screen     # plain Copy uses screen glyphs
+```
+
+No clip file is created at startup, on drag release, or merely when quitting.
+A flag-supplied destination, or a path entered through Save, becomes the session's
+**latest-clip destination** for that format. Subsequent Copy/Save actions replace
+it; use **`--no-overwrite`** to refuse replacement. To collect several clips in
+this pass, use separate invocations/destinations or move a saved clip aside.
+Files are UTF-8 with LF line endings and a final newline; rectangular spaces are
+not trimmed. Publication is atomic. The input image, its hard-link aliases,
+output symlinks, directories and nonregular targets are rejected. Parent-directory
+symlinks are allowed. Explicit text/ANSI destinations must be different files.
+File failures remain visible and leave the viewer and selection usable. An
+accepted file save is joined on shutdown; no late OSC bytes are sent after exit.
+
+### Clipboard transport and remote terminals
+
+**`--clipboard auto`** (the default) first tries an available local clipboard
+helper when not in SSH/tmux/Screen: `pbcopy` on macOS, `clip.exe` on Windows, or
+`wl-copy`/`xclip`/`xsel` for a detected Wayland/X11 session. These optional commands
+are invoked without a shell, with a two-second timeout; no package dependency
+is added and no image converter is invoked. Over SSH or inside a multiplexer,
+or when helpers are absent/fail, auto sends a write-only **OSC 52** request through
+the viewer's terminal output. `--clipboard osc52` selects that route explicitly.
+`--clipboard off` disables clipboard delivery; Copy then uses the configured
+file or offers the Save prompt. Save never accesses the clipboard.
+
+OSC 52 targets the terminal's clipboard, which can be on your local computer even
+when ttwhy runs remotely. Terminal support, permissions, multiplexer forwarding
+and size limits vary. The UI therefore says **"Sent OSC 52"**, not "clipboard
+confirmed". ttwhy never queries/reads the clipboard, probes its contents, bypasses
+terminal policy, or changes your terminal/tmux settings. Its OSC payload limit
+is **64 KiB of UTF-8 text**, with an explicit error rather than truncation. Some
+terminals impose smaller limits. File export has no OSC limit and is the reliable
+fallback. When a configured file saves but clipboard delivery fails, the status
+reports both outcomes; the successful file is kept.
+
+For iTerm2, the relevant preference is **General > Selection > Applications in
+terminal may access clipboard**. For normal tmux sessions, application-originated
+OSC 52 needs `set -s set-clipboard on`, a working `Ms`/clipboard capability for the
+outer terminal, and the outer terminal's permission. This also allows other
+applications in that tmux server to set the clipboard, so enable it only in a
+trusted environment. Nested multiplexers and tmux control-mode integrations may
+need their own configuration. ttwhy sends ordinary OSC 52, not DCS passthrough.
+
+References: [XTerm OSC 52](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html),
+[tmux clipboard](https://github.com/tmux/tmux/wiki/Clipboard),
+[iTerm2 selection preferences](https://iterm2.com/documentation-preferences-general.html),
+[PDFium text API](https://pypdfium2.readthedocs.io/en/stable/python_api.html).
 
 ### RAM-only overviews
 
@@ -186,7 +303,7 @@ page can require substantial RAM; lower `--pdf-max-dpi` for a smaller footprint.
 The existing preview-cache and per-read limits still govern interactive sampling. Pillow's large-image safeguards remain enabled; they are not globally
 disabled. PDF native dimension limits and allocation errors remain errors rather
 than silently reducing the requested DPI. No intermediate image, pyramid file,
-or disk cache is written. Only an explicitly requested snapshot creates output.
+or disk cache is written. Only an explicitly requested snapshot or clip export creates output.
 
 ## Viewer
 
@@ -223,6 +340,7 @@ still be split by tmux; ttwhy does not implement a shell or manage tmux sessions
 | `r` or Home | Fit the image, subject to the read budget |
 | PageDown / `]`; PageUp / `[` | Next / previous PDF page or OME series |
 | `p`, number, Enter | Go to a PDF page (1-based) or OME series (0-based) |
+| `s`; selection toolbar | Select/copy a rectangle; see the selection controls above. |
 | `c`; Tab | Toggle the sidebar; move focus between image and channels |
 | `,` / `.`; sidebar wheel | Focus the previous / next channel |
 | Space; click a sidebar channel | Toggle the focused channel in the composite |
@@ -386,7 +504,8 @@ this is a separate bound from `ViewSession`'s source-read budget.
 
 A `TextImage` owns read-only `characters`, optional `foreground`, and optional
 `background` arrays. `to_text(ansi=False)` returns plain text, `to_text(ansi=True)`
-adds SGR colors, and `iter_runs(row)` exposes framework-independent styled runs for
+adds SGR colors, `crop(y0, y1, x0, x1)` owns an exact half-open cell rectangle
+including colors, and `iter_runs(row)` exposes framework-independent styled runs for
 other applications. No serialization includes cursor movement. `resample_image`
 and `compose_channels` are independently usable public functions.
 

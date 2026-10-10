@@ -169,3 +169,62 @@ def test_document_navigation_in_real_terminal(tmp_path, kind):
     assert terminal.exitstatus == 0, output
     assert "Traceback" not in output
     assert "\x1b[?1049l" in output and "\x1b[?1006l" in output and "\x1b[?25h" in output
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX pseudo-terminal test")
+@pytest.mark.parametrize("kind", ["png", "pdf"])
+def test_real_terminal_rectangle_copy_and_clip_files(tmp_path, kind):
+    import base64
+    from PIL import Image as PILImage
+    from test_clipping import write_text_pdf
+
+    pexpect = pytest.importorskip("pexpect")
+    if kind == "pdf":
+        pytest.importorskip("pypdfium2")
+        path = write_text_pdf(tmp_path / "select.pdf")
+        options = ["--pdf-max-dpi", "144", "--pdf-cache-pages", "1"]
+    else:
+        path = tmp_path / "select.png"
+        PILImage.new("RGB", (96, 64), (120, 60, 180)).save(path)
+        options = []
+    text_path, ansi_path = tmp_path / "clip.txt", tmp_path / "clip.ansi"
+    env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
+    env.pop("NO_COLOR", None)
+    env.pop("PROMPT_TOOLKIT_COLOR_DEPTH", None)
+    terminal = pexpect.spawn(
+        sys.executable, ["-m", "ttwhy", str(path), *options,
+                         "--clipboard", "osc52", "--output-text-clip", str(text_path),
+                         "--output-ansi-clip", str(ansi_path)], encoding="utf-8",
+        dimensions=(26, 110), env=env, timeout=15,
+    )
+    transcript = io.StringIO()
+    terminal.logfile_read = transcript
+    try:
+        terminal.expect(r"\| blocks ")
+        terminal.send("s\x1b[H \x1b[Fy")
+        terminal.expect("\x1b\\]52;c;([^\x07]+)\x07")
+        payload = base64.b64decode(terminal.match.group(1)).decode("utf-8")
+        assert text_path.read_text() == payload + "\n"
+        if kind == "pdf":
+            assert "ALPHA one" in payload and "BETA two" in payload
+        else:
+            assert "▀" in payload and "\x1b" not in payload
+        terminal.send("W")
+        # File publication is asynchronous. Poll its explicit destination, not
+        # transient status text which prompt_toolkit can render as screen diffs.
+        deadline = time.monotonic() + 5
+        while not ansi_path.exists() and time.monotonic() < deadline:
+            try:
+                terminal.read_nonblocking(65536, timeout=.1)
+            except pexpect.TIMEOUT:
+                pass
+        assert ansi_path.exists()
+        assert "38;2;" in ansi_path.read_text() and "48;2;" in ansi_path.read_text()
+        terminal.send("sq")
+        terminal.expect(pexpect.EOF)
+    finally:
+        terminal.close(force=True)
+    assert terminal.exitstatus == 0, transcript.getvalue()
+    output = transcript.getvalue()
+    assert "Traceback" not in output
+    assert "\x1b[?1049l" in output and "\x1b[?1006l" in output and "\x1b[?25h" in output

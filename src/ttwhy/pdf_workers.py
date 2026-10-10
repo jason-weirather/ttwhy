@@ -109,28 +109,41 @@ class PdfWorkers:
                     array.flags.writeable = False
                 return result
             finally:
-                # Every job has its own pipe and no shared locks/queues. Killing
-                # obsolete native work cannot corrupt another job or its output.
-                if started:
-                    if process.is_alive():
-                        process.terminate()
-                    # Bounded wait, then kill if native code ignores termination.
-                    await asyncio.to_thread(process.join, 1.0)
-                    if process.is_alive():
-                        process.kill()
-                        await asyncio.to_thread(process.join)
-                    self._processes.discard(process)
-                send.close()
-                try:
-                    if future is not None:
-                        # The primary await already reports reception failures.
-                        # Draining after cancellation must also release a partial
-                        # transfer; even an unpickle/allocation error closes FDs.
-                        with suppress(Exception):
-                            await asyncio.shield(future)
-                finally:
-                    receive.close()
-                    process.close()
+                # Cancellation can arrive during a normal successful job's
+                # finalizer, not just while waiting for its result. Shield the
+                # ENTIRE process/pipe cleanup and await it even after repeated
+                # cancellation; otherwise TaskGroup can finish with a live child.
+                cleanup = asyncio.create_task(self._finish_job(
+                    process, started, send, receive, future,
+                ))
+                interrupted = False
+                while not cleanup.done():
+                    try:
+                        await asyncio.shield(cleanup)
+                    except asyncio.CancelledError:
+                        interrupted = True
+                cleanup.result()
+                if interrupted:
+                    raise asyncio.CancelledError
+
+    async def _finish_job(self, process, started, send, receive, future) -> None:
+        """Private finalizer; its owner must shield it and wait until completion."""
+        try:
+            if started:
+                if process.is_alive():
+                    process.terminate()
+                await asyncio.to_thread(process.join, 1.0)
+                if process.is_alive():
+                    process.kill()
+                    await asyncio.to_thread(process.join)
+                self._processes.discard(process)
+            send.close()
+            if future is not None:
+                with suppress(Exception):
+                    await asyncio.shield(future)
+        finally:
+            receive.close()
+            process.close()
 
     def close(self) -> None:
         if self._processes:
