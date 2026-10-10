@@ -49,7 +49,8 @@ class Viewer:
         viewport: Viewport | None = None,
         navigation=None,
         source_path=None, output_text_clip=None, output_ansi_clip=None,
-        output_png_clip=None, clipboard="auto", clip_source="auto", clip_overwrite=True,
+        output_png_clip=None, output_geojson_clip=None,
+        clipboard="auto", clip_source="auto", clip_overwrite=True,
     ) -> None:
         self.session = session
         self.navigation = navigation
@@ -81,7 +82,7 @@ class Viewer:
         self.clipping = ClipController(
             self, source_path=source_path, output_text_clip=output_text_clip,
             output_ansi_clip=output_ansi_clip, output_png_clip=output_png_clip,
-            clipboard=clipboard,
+            output_geojson_clip=output_geojson_clip, clipboard=clipboard,
             clip_source=clip_source, clip_overwrite=clip_overwrite,
         )
         self.entry = TextArea(
@@ -94,8 +95,10 @@ class Viewer:
         return self.clipping.selection is not None
 
     def _entry_prompt(self) -> str:
-        if self.editing in ("save-text", "save-ansi", "save-png"):
+        if self.editing in ("save-text", "save-ansi", "save-png", "save-geojson"):
             return " Save clip to file (Enter / Esc): "
+        if self.editing == "geojson-name":
+            return " GeoJSON feature name (Enter / Esc): "
         if self.editing == "destination" and self.navigation is not None:
             doc = self.navigation.document
             return f" Go to {doc.label} ({doc.first_index}..{doc.last_index}; Enter / Esc): "
@@ -431,9 +434,13 @@ class Viewer:
             self.application.invalidate()
 
     def _accept_edit(self, buffer: Buffer) -> bool:
-        if self.editing in ("save-text", "save-ansi", "save-png"):
+        if self.editing in ("save-text", "save-ansi", "save-png", "save-geojson"):
             self.clipping.accept_path(buffer.text, ansi=self.editing == "save-ansi",
-                                      image=self.editing == "save-png")
+                                      image=self.editing == "save-png",
+                                      geojson=self.editing == "save-geojson")
+            return True
+        if self.editing == "geojson-name":
+            self.clipping.accept_name(buffer.text)
             return True
         if self.editing == "destination":
             try:

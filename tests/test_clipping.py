@@ -23,7 +23,8 @@ from ttwhy.text_clip import (
 from ttwhy.viewer.clipping import clip_options
 from ttwhy.viewer.controls import clip_fragments
 from ttwhy.viewer.rendering import terminal_lines
-from ttwhy.viewer.selection import RectangleSelection
+from ttwhy.geojson_clip import polygon_feature, rectangle_feature
+from ttwhy.viewer.selection import PolygonSelection, RectangleSelection
 
 
 @pytest.fixture
@@ -92,6 +93,51 @@ def test_keyboard_anchor_swap_clamp_and_single_cell(cells):
     selection.mark()
     assert selection.bounds == (1, 2, 1, 2)
 
+
+
+
+def test_polygon_selection_adds_points_and_can_remove_last(cells):
+    selection = PolygonSelection(cells, terminal_lines(cells))
+    selection.mark()
+    selection.move(2, 0)
+    selection.mark()
+    selection.move(0, 2)
+    selection.mark()
+    assert selection.vertices() == [(3, 2), (5, 2), (5, 3)]
+    assert selection.bounds == (2, 4, 3, 6)
+    assert "+" in "".join(text for _, text in selection.row(2))
+    selection.swap_corner()
+    assert selection.vertices() == [(3, 2), (5, 2)]
+    with pytest.raises(ValueError, match="GeoJSON only"):
+        selection.clip()
+
+
+def test_rectangle_geojson_uses_source_pixel_coordinates(cells):
+    selection = RectangleSelection(cells, terminal_lines(cells))
+    selection.start_drag(1, 0)
+    selection.drag(4, 2, finish=True)
+    feature = rectangle_feature(bounds=selection.bounds,
+                                viewport=type("Viewport", (), {"x": 100, "y": 200, "width": 60, "height": 40})(),
+                                frame_shape=selection.frame.shape, raster_shape=(400, 800),
+                                name="box")
+    ring = feature["geometry"]["coordinates"][0]
+    assert ring[0] == [110.0, 200.0]
+    assert ring[1] == [150.0, 200.0]
+    assert ring[2] == [150.0, 230.0]
+    assert ring[4] == ring[0]
+    assert feature["properties"]["name"] == "box"
+
+
+def test_polygon_geojson_uses_vertex_centers():
+    feature = polygon_feature(vertices=[(0, 0), (5, 0), (5, 3)],
+                              viewport=type("Viewport", (), {"x": 10, "y": 20, "width": 60, "height": 40})(),
+                              frame_shape=(4, 6), raster_shape=(400, 800),
+                              name="poly")
+    ring = feature["geometry"]["coordinates"][0]
+    assert ring[0] == [15.0, 25.0]
+    assert ring[1] == [65.0, 25.0]
+    assert ring[2] == [65.0, 55.0]
+    assert ring[-1] == ring[0]
 
 def test_shift_arrow_starts_selection_without_space(cells):
     selection = RectangleSelection(cells, terminal_lines(cells))

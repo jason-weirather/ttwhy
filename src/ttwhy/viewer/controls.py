@@ -1,4 +1,4 @@
-"""Terminal controls: cell presentation and mouse-to-camera translation only."""
+"""Terminal controls: cell presentation, selection tools, and mouse navigation."""
 
 from typing import TYPE_CHECKING
 
@@ -48,6 +48,8 @@ class CanvasControl(UIControl):
                 selection.start_drag(x, y)
             elif event.event_type == MouseEventType.MOUSE_MOVE and event.button == MouseButton.LEFT:
                 selection.drag(x, y)
+            elif event.event_type == MouseEventType.MOUSE_MOVE:
+                selection.drag(x, y)
             elif event.event_type == MouseEventType.MOUSE_UP:
                 selection.drag(x, y, finish=True)
             viewer.application.invalidate()
@@ -82,17 +84,52 @@ class ChannelControl(UIControl):
     def create_content(self, width: int, height: int) -> UIContent:
         viewer, info = self.viewer, self.viewer.session.info
         if viewer.selecting:
-            lines = [[("class:panel.title", " SELECT / COPY")]]
-            lines += [[("class:panel", line)] for line in (
-                " Drag: rectangle", " Arrows: move cursor/corner", " Space: set first corner",
-                " Shift+arrows: extend", " Tab: swap corners", " Home/End: canvas corners",
-                " y / Enter: copy text", " w: save text", " i: copy PNG image",
-                " P: save PNG image", " Y: copy ANSI artwork",
-                " W: save ANSI artwork", " Esc / s: resume viewing", "", " Text: " + viewer.clipping.source_label,
-                " PDF text requires text layer.", " PNG/JPEG copy screen glyphs.",
-                " No OCR or invented text.", " PNG is for Discord/share.",
-                " ANSI is for terminals only.",
-            )]
+            selection = viewer.clipping.selection
+            if selection is not None and selection.kind == "polygon":
+                lines = [[("class:panel.title", " POLYGON / GEOJSON")]]
+                lines += [[("class:panel", line)] for line in (
+                    " Click: add polygon point",
+                    " Arrows: move cursor",
+                    " Space: add point",
+                    " Shift+arrows: move and add points",
+                    " Tab: remove last point",
+                    " Home/End: canvas corners",
+                    " n: name feature",
+                    " j / Enter: copy GeoJSON",
+                    " J: save GeoJSON",
+                    " Esc / v: resume viewing",
+                    "",
+                    " GeoJSON is in image pixel coordinates.",
+                    " Works for raster, OME-TIFF, and PDF page rasters.",
+                    " Clipboard copies JSON text; save for files.",
+                )]
+            else:
+                lines = [[("class:panel.title", " SELECT / COPY")]]
+                lines += [[("class:panel", line)] for line in (
+                    " Drag: rectangle",
+                    " Arrows: move cursor/corner",
+                    " Space: set first corner",
+                    " Shift+arrows: extend",
+                    " Tab: swap corners",
+                    " Home/End: canvas corners",
+                    " y / Enter: copy text",
+                    " w: save text",
+                    " i: copy PNG image",
+                    " P: save PNG image",
+                    " Y: copy ANSI artwork",
+                    " W: save ANSI artwork",
+                    " n: name GeoJSON",
+                    " j: copy GeoJSON",
+                    " J: save GeoJSON",
+                    " Esc / s: resume viewing",
+                    "",
+                    " Text: " + viewer.clipping.source_label,
+                    " PDF text requires text layer.",
+                    " PNG/JPEG copy screen glyphs.",
+                    " No OCR or invented text.",
+                    " PNG is for Discord/share.",
+                    " ANSI is for terminals only.",
+                )]
             return UIContent(get_line=lambda row: lines[row] if row < len(lines) else [],
                              line_count=len(lines), show_cursor=False)
         self.visible_channels = max(1, height - 12)
@@ -182,11 +219,20 @@ def clip_fragments(viewer: "Viewer") -> list:
 
     clip = viewer.clipping
     if not viewer.selecting:
-        return [button(" [s: Select] ", clip.toggle)]
+        return [button(" [s: Select] ", clip.toggle),
+                button("[v: Polygon] ", clip.start_polygon)]
+    if clip.selection is not None and clip.selection.kind == "polygon":
+        return [button(" [j: GeoJSON] ", clip.submit_geojson),
+                button("[J: Save GeoJSON] ", lambda: clip.save(geojson=True)),
+                button("[n: Name] ", clip.begin_name),
+                button("[v: Done] ", clip.end)]
     return [button(" [y: Text] ", clip.submit),
             button("[i: Copy PNG] ", clip.submit_image),
             button("[P: Save PNG] ", lambda: clip.save(image=True)),
             button("[w: Save] ", clip.save),
             button("[Y: ANSI] ", lambda: clip.submit(ansi=True)),
             button("[W: Save ANSI] ", lambda: clip.save(ansi=True)),
+            button("[j: GeoJSON] ", clip.submit_geojson),
+            button("[J: Save GeoJSON] ", lambda: clip.save(geojson=True)),
+            button("[n: Name] ", clip.begin_name),
             button("[s: Done] ", clip.end)]

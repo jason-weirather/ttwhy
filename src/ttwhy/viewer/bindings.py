@@ -16,6 +16,12 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
     idle = Condition(lambda: viewer.editing is None)
     browsing = Condition(lambda: viewer.editing is None and not viewer.selecting)
     selecting = Condition(lambda: viewer.editing is None and viewer.selecting)
+    rectangle_selecting = Condition(lambda: viewer.editing is None and viewer.selecting
+                                    and viewer.clipping.selection is not None
+                                    and viewer.clipping.selection.kind == "rectangle")
+    polygon_selecting = Condition(lambda: viewer.editing is None and viewer.selecting
+                                  and viewer.clipping.selection is not None
+                                  and viewer.clipping.selection.kind == "polygon")
 
     @bindings.add("c-q", eager=True)
     def quit_always(event: KeyPressEvent) -> None:
@@ -26,7 +32,10 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
         if viewer.editing is not None:
             viewer.cancel_edit()
         elif viewer.selecting:
-            viewer.clipping.submit()
+            if viewer.clipping.selection is not None and viewer.clipping.selection.kind == "polygon":
+                viewer.clipping.submit_geojson()
+            else:
+                viewer.clipping.submit()
         else:
             event.app.exit()
 
@@ -155,7 +164,11 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
 
     @bindings.add("s", filter=idle)
     def selection_mode(event: KeyPressEvent) -> None:
-        viewer.clipping.toggle()
+        viewer.clipping.toggle("rectangle")
+
+    @bindings.add("v", filter=idle)
+    def polygon_mode(event: KeyPressEvent) -> None:
+        viewer.clipping.start_polygon()
 
     def selection_move(dx, dy, extend=False):
         def move(event):
@@ -184,29 +197,47 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
         bindings.add(key, filter=selecting)(edge(last))
         bindings.add("s-" + key, filter=selecting)(edge(last, True))
 
-    @bindings.add("enter", filter=selecting)
-    @bindings.add("y", filter=selecting)
+    @bindings.add("n", filter=selecting)
+    def name_geojson(event):
+        viewer.clipping.begin_name()
+
+    @bindings.add("enter", filter=rectangle_selecting)
+    @bindings.add("y", filter=rectangle_selecting)
     def copy_text(event):
         viewer.clipping.submit()
 
-    @bindings.add("Y", filter=selecting)
+    @bindings.add("Y", filter=rectangle_selecting)
     def copy_ansi(event):
         viewer.clipping.submit(ansi=True)
 
-    @bindings.add("i", filter=selecting)
+    @bindings.add("i", filter=rectangle_selecting)
     def copy_png(event):
         viewer.clipping.submit_image()
 
-    @bindings.add("P", filter=selecting)
+    @bindings.add("P", filter=rectangle_selecting)
     def save_png(event):
         viewer.clipping.save(image=True)
 
-    @bindings.add("w", filter=selecting)
+    @bindings.add("w", filter=rectangle_selecting)
     def save_text(event):
         viewer.clipping.save()
 
-    @bindings.add("W", filter=selecting)
+    @bindings.add("W", filter=rectangle_selecting)
     def save_ansi(event):
         viewer.clipping.save(ansi=True)
+
+    @bindings.add("j", filter=selecting)
+    @bindings.add("enter", filter=polygon_selecting)
+    def copy_geojson(event):
+        viewer.clipping.submit_geojson()
+
+    @bindings.add("J", filter=selecting)
+    def save_geojson(event):
+        viewer.clipping.save(geojson=True)
+
+    @bindings.add("s", filter=rectangle_selecting)
+    @bindings.add("v", filter=polygon_selecting)
+    def close_selection(event):
+        viewer.clipping.end()
 
     return bindings

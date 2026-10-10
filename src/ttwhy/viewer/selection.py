@@ -1,12 +1,27 @@
-"""Cell-grid rectangle selection over one frozen, immutable TextImage."""
+"""Cell-grid selections over one frozen, immutable TextImage."""
 
 from __future__ import annotations
 
 from ..text_image import TextImage
 
 
+def _merge_runs(cells: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    merged: list[tuple[str, str]] = []
+    for style, text in cells:
+        if merged and merged[-1][0] == style:
+            merged[-1] = (style, merged[-1][1] + text)
+        else:
+            merged.append((style, text))
+    return merged
+
+
 class RectangleSelection:
     """Arrows move a cursor; anchoring makes them adjust the opposite corner."""
+
+    kind = "rectangle"
+    supports_text = True
+    supports_image = True
+    supports_geojson = True
 
     def __init__(self, frame: TextImage, lines: list) -> None:
         self.frame, self.lines = frame, lines
@@ -58,6 +73,12 @@ class RectangleSelection:
             raise ValueError("Drag a box, or press Space then move with the arrows")
         return self.frame.crop(*self.bounds)
 
+    def vertices(self) -> list[tuple[int, int]]:
+        if self.bounds is None:
+            return []
+        y0, y1, x0, x1 = self.bounds
+        return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
     def row(self, y: int) -> list[tuple[str, str]]:
         """Overlay a visible ASCII border, never mutate the frame used for copying."""
         if not 0 <= y < self.frame.shape[0]:
@@ -83,3 +104,123 @@ class RectangleSelection:
                     result.append((display_style, char))
                 x += 1
         return result
+
+
+class PolygonSelection:
+    """Keyboard and click-by-click polygon checkpoints for GeoJSON export."""
+
+    kind = "polygon"
+    supports_text = False
+    supports_image = False
+    supports_geojson = True
+
+    def __init__(self, frame: TextImage, lines: list) -> None:
+        self.frame, self.lines = frame, lines
+        self.cursor = (frame.shape[1] // 2, frame.shape[0] // 2)
+        self.points: list[tuple[int, int]] = []
+        self.dragging = False
+
+    def clamp(self, x: int, y: int) -> tuple[int, int]:
+        return (min(self.frame.shape[1] - 1, max(0, x)),
+                min(self.frame.shape[0] - 1, max(0, y)))
+
+    def move(self, dx: int, dy: int, *, extend: bool = False) -> None:
+        self.cursor = self.clamp(self.cursor[0] + dx, self.cursor[1] + dy)
+        if extend:
+            self.mark()
+        self.dragging = False
+
+    def mark(self) -> None:
+        point = self.cursor
+        if self.points and point == self.points[0] and len(self.points) >= 3:
+            self.dragging = False
+            return
+        if not self.points or point != self.points[-1]:
+            self.points.append(point)
+        self.dragging = False
+
+    def swap_corner(self) -> None:
+        if self.points:
+            self.points.pop()
+        self.dragging = False
+
+    def start_drag(self, x: int, y: int) -> None:
+        point = self.clamp(x, y)
+        self.cursor = point
+        if self.points and point == self.points[0] and len(self.points) >= 3:
+            self.dragging = False
+            return
+        if not self.points or point != self.points[-1]:
+            self.points.append(point)
+        self.dragging = True
+
+    def drag(self, x: int, y: int, *, finish: bool = False) -> None:
+        self.cursor = self.clamp(x, y)
+        if finish:
+            self.dragging = False
+
+    @property
+    def bounds(self) -> tuple[int, int, int, int] | None:
+        points = self.points or [self.cursor]
+        if not points:
+            return None
+        xs = [point[0] for point in points]
+        ys = [point[1] for point in points]
+        return min(ys), max(ys) + 1, min(xs), max(xs) + 1
+
+    def clip(self) -> TextImage:
+        raise ValueError("Polygon selections export GeoJSON only")
+
+    def vertices(self) -> list[tuple[int, int]]:
+        return list(self.points)
+
+    def _edge_points(self) -> dict[tuple[int, int], str]:
+        overlay: dict[tuple[int, int], str] = {}
+
+        def draw_segment(start: tuple[int, int], end: tuple[int, int]) -> None:
+            x0, y0 = start
+            x1, y1 = end
+            dx = abs(x1 - x0)
+            dy = -abs(y1 - y0)
+            sx = 1 if x0 < x1 else -1
+            sy = 1 if y0 < y1 else -1
+            error = dx + dy
+            x, y = x0, y0
+            while True:
+                char = "+" if (x, y) in (start, end) else ("|" if abs(y1 - y0) > abs(x1 - x0) else "-")
+                overlay[(x, y)] = char
+                if x == x1 and y == y1:
+                    break
+                e2 = 2 * error
+                if e2 >= dy:
+                    error += dy
+                    x += sx
+                if e2 <= dx:
+                    error += dx
+                    y += sy
+
+        for left, right in zip(self.points, self.points[1:]):
+            draw_segment(left, right)
+        if self.points:
+            draw_segment(self.points[-1], self.cursor)
+        if len(self.points) >= 3 and self.cursor == self.points[0]:
+            draw_segment(self.points[-1], self.points[0])
+        return overlay
+
+    def row(self, y: int) -> list[tuple[str, str]]:
+        if not 0 <= y < self.frame.shape[0]:
+            return []
+        overlay = self._edge_points()
+        rendered: list[tuple[str, str]] = []
+        x = 0
+        for style, text in self.lines[y]:
+            for char in text:
+                display_style = style
+                if (x, y) in overlay:
+                    char = overlay[(x, y)]
+                    display_style = "class:clip.border"
+                if (x, y) == self.cursor:
+                    char, display_style = "+", "class:clip.cursor"
+                rendered.append((display_style, char))
+                x += 1
+        return _merge_runs(rendered)

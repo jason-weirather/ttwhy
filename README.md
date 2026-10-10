@@ -277,6 +277,30 @@ symlinks are allowed. Explicit text, ANSI and PNG destinations must be different
 File failures remain visible and leave the viewer and selection usable. An
 accepted file save is joined on shutdown; no late OSC bytes are sent after exit.
 
+### GeoJSON annotation selections
+
+The interactive viewer can export geometry from any input, independent of its
+terminal rendering mode. Press **`s`** for rectangle selection, or **`v`** for a
+polygon. In polygon mode, click to add vertices, or use the arrows and **Space**
+to place each vertex. **Tab** removes the last polygon vertex. At least three
+vertices are required; GeoJSON closes the ring automatically.
+
+While selecting, **`n`** names the feature, **`j`** copies a GeoJSON
+`FeatureCollection` as text, and **`J`** saves it. The destination can be
+preconfigured with `--output-geojson-clip region.geojson`; otherwise Save
+prompts for a file path. Existing `--clipboard` and `--no-overwrite` policies
+also apply. Rectangle text/ANSI/PNG exports remain available as before.
+
+GeoJSON coordinates are **source-image pixel coordinates**, not terminal-cell
+coordinates, latitude/longitude, or physical micrometers. Origin is top-left,
+X increases rightward and Y downward. Exported properties contain the feature
+name, selection type, image dimensions, and (for navigable documents) page or
+series. These coordinates suit image annotation tools such as QuPath when
+imported against the **same image and orientation**. PDF exports refer to the
+**currently displayed raster DPI** and require a corresponding raster for pixel
+alignment; their coordinates are not PDF points or a permanent cross-DPI frame.
+QuPath import of these new exports has not been tested on a real project yet.
+
 ### Clipboard transport and remote terminals
 
 **`--clipboard auto`** (the default) first tries an available local clipboard

@@ -17,8 +17,8 @@ async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
                     mode="blocks", color=True, invert=None, cell_aspect=2.0,
                     viewport=None, cache_mib=32.0, max_read_pixels=4_194_304,
                     input=None, output=None, output_text_clip=None, output_ansi_clip=None,
-                    output_png_clip=None, clipboard="auto", clip_source="auto",
-                    clip_overwrite=True) -> None:
+                    output_png_clip=None, output_geojson_clip=None, clipboard="auto",
+                    clip_source="auto", clip_overwrite=True) -> None:
     """Navigate a document with its normal terminal controls and renderer.
 
     mode must be a resolved TextRenderer mode (the CLI resolves 'auto'). Embedded
@@ -28,7 +28,7 @@ async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
     """
     clipping = dict(source_path=path, output_text_clip=output_text_clip,
                     output_ansi_clip=output_ansi_clip, output_png_clip=output_png_clip,
-                    clipboard=clipboard,
+                    output_geojson_clip=output_geojson_clip, clipboard=clipboard,
                     clip_source=clip_source, clip_overwrite=clip_overwrite)
     clip_options(**clipping)
     document = ImageDocument(path, series=series, page=page, frame=frame,
