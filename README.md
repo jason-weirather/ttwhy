@@ -3,7 +3,7 @@
 A whole slide pathology image viewer in text; because sometimes the answer to “why is this in the terminal?” is “yes.”
 
 `ttwhy` is a library-first image-to-text renderer and a full-screen viewer for
-OME-TIFF, ordinary raster images, and PDF pages.
+OME-TIFF, Aperio SVS, ordinary raster images, and PDF pages.
 The CLI defaults to **auto**: two-color Unicode half-blocks when the terminal
 supports them, otherwise portable **simple** ASCII. **Detail** uses spatial Braille;
 **shape** emphasizes typographic strokes and texture. Explicit **blocks** remains
@@ -49,12 +49,15 @@ all-pure-Python codec stack. There is no ImageMagick, Ghostscript, Poppler comma
 OpenCV, browser, or external converter. PDF refinement uses standard-library
 multiprocessing to run the same Python reader in isolated workers. Decoders are
 imported only when used; array rendering does not import Pillow, PDFium, Omeify, or the terminal UI.
-OME-TIFF still opens regionally without a scan or pyramid build. Ordinary files
-explicitly take the eager, RAM-only path described below.
+OME-TIFF and Aperio SVS still open regionally without a scan or pyramid build.
+Ordinary files explicitly take the eager, RAM-only path described below.
 
-## Ordinary images and PDF pages
+## Aperio SVS, ordinary images and PDF pages
 
 ```bash
+ttwhy slide.svs                            # Aperio whole-slide RGB, stored pyramid
+ttwhy slide.SVS --snapshot --ansi -o slide.ansi
+
 ttwhy photograph.jpg
 ttwhy screenshot.png
 ttwhy illustration.webp
@@ -77,15 +80,26 @@ capable terminals and simple text otherwise. There is no second viewer.
 
 | Input | Behavior in this pass |
 |---|---|
-| OME-TIFF | Existing Omeify reader, stored levels, and regional decoding, unchanged. |
+| OME-TIFF | Existing Omeify OMETiffReader, stored levels, and regional decoding, unchanged. |
+| Aperio SVS (`.svs`, case-insensitive) | Omeify AperioSVSReader, native RGB and supplied pyramid, regional decoding; no whole-slide RAM pyramid. |
 | PNG, JPEG/JPG, WebP, BMP, TGA | Decode once; retain the base raster and an in-memory pyramid. |
 | GIF, APNG, animated WebP | Frame 0 by default, or select `--frame N`; no animation playback. |
 | ICO | View the decoder's default icon representation. |
 | PPM, PGM, PBM | Ordinary portable raster formats through Pillow. |
 | PDF, with `ttwhy[pdf]` | Navigate pages; quick RGB preview followed by sharper, RAM-only pyramids. |
 
-File content determines the reader, not the extension alone. Unsupported formats
-fail explicitly. **Non-OME TIFF, SVG, EPS/PostScript, HEIC/AVIF, JPEG 2000, and raw
+An SVS is one logical RGB channel, not three independent stain channels.
+Omeify reads Aperio `MPP` calibration when available and exposes stored reduced
+levels. The `--series` control can also visit associated series (for example a
+thumbnail) when the reader supports their pixel layout. GeoJSON coordinates
+remain relative to the selected series' own base pixel grid.
+
+The file signature first distinguishes TIFF, PDF, and raster data. Within TIFF,
+the `.svs` suffix selects Omeify's Aperio reader, which validates the actual SVS
+format; other TIFFs continue through Omeify's OME-TIFF reader. Renaming an OME-TIFF
+to `.svs` does not make it valid SVS, and an SVS renamed `.tif` is not automatically
+detected. Unsupported formats fail explicitly. **Other non-OME TIFF, SVG,
+EPS/PostScript, HEIC/AVIF, JPEG 2000, and raw
 camera formats are deferred.** In particular, an OME-TIFF error never falls
 through to Pillow, and no EPS plugin may invoke an external converter.
 
@@ -107,8 +121,9 @@ invalid numbers stay in the editor. The navigation bar also has clickable
 previous, next and go-to controls, and shows the current page and document count.
 The mouse wheel over the image remains zoom, not page turning.
 
-The same controls switch **OME-TIFF series**. PDF page numbers are **one-based**;
-OME series indices remain **zero-based**, matching `--page` and `--series`.
+The same controls switch **OME-TIFF and SVS series**, if provided by the reader.
+PDF page numbers are **one-based**; TIFF/SVS series indices remain
+**zero-based**, matching `--page` and `--series`.
 The limits are shown in the jump prompt. Raster frames remain startup-only via
 `--frame`, with no animation playback or frame-navigation UI in this pass.
 
@@ -444,6 +459,7 @@ ttwhy multiplex.ome.tif --channel 0 --lower 250 --upper 12000
 
 # RGB remains one logical channel containing its three color samples.
 ttwhy brightfield.ome.tif --mode blocks
+ttwhy slide.svs --mode blocks              # Aperio whole-slide RGB, regional reads
 
 # Select one OME image series, or start at a particular base-pixel field of view.
 ttwhy slide.ome.tif --series 1
@@ -795,10 +811,11 @@ source strip or tile can exceed that target. A poorly tiled source can still be 
 
 ## Current scope
 
-The CLI supports the ordinary image and PDF formats listed above, plus tiled or
+The CLI supports the ordinary image and PDF formats listed above, plus **Aperio
+SVS** (RGB `.svs` files through Omeify's Aperio reader) and tiled or
 striped **OME-TIFF**, including stored SubIFD pyramids, grayscale, RGB, and planar
 multi-marker images. Python sessions accept an open Omeify intensity or RGB Image,
-including array and procedural backends. PDF pages and OME series can be navigated
+including array and procedural backends. PDF pages and TIFF series can be navigated
 in-app; `--page` and `--series` choose the initial selection. Raster `--frame`
 selection remains startup-only. Non-singleton Z/T stacks, label-specific
 categorical coloring, raw vendor formats, OME-Zarr, remote

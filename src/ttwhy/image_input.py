@@ -1,8 +1,8 @@
 """File ingress into the existing Omeify Image -> ViewSession display pipeline.
 
-OME-TIFF stays regional and uses only OMETiffReader. An ordinary raster or one
-PDF page is decoded once, given a RAM-only display pyramid, and wrapped through
-Omeify's public array API. No temporary TIFF, converter subprocess, backend
+OME-TIFF and Aperio SVS stay regional through Omeify TIFF readers. An ordinary
+raster or one PDF page is decoded once, given a RAM-only display pyramid,
+and wrapped through Omeify's public array API. No temporary TIFF, converter subprocess, backend
 registry, or alternative sampling/rendering path is involved.
 """
 
@@ -154,12 +154,13 @@ def open_image(
     frame: int | None = None, pdf_dpi: float | None = None,
     background: Sequence[int] | None = None,
 ) -> Iterator["Image"]:
-    """Open one OME series, ordinary image/frame, or rendered PDF page.
+    """Open one OME/SVS series, ordinary image/frame, or rendered PDF page.
 
     series and frame are zero-based; PDF page is one-based (default 1).
     Ordinary images default to frame 0, PDFs to 144 DPI, transparency to white.
     Options for another input kind are rejected instead of silently ignored.
-    OME-TIFF uses its original regional reader and stored pyramid unchanged.
+    OME-TIFF uses OMETiffReader; .svs TIFFs use AperioSVSReader. Both retain
+    the source levels and regional reads without constructing a RAM pyramid.
 
     Other inputs are eagerly decoded into RAM, retaining the original decoded
     base resolution and area-mean overview levels. PDF resolution is fixed when
@@ -173,8 +174,6 @@ def open_image(
     after close; drop those references to release it. TIFF errors never fall
     through to another decoder. Decoders are imported only when needed.
     """
-    from omeify import OMETiffReader
-
     path = Path(path)
     series = _index(series, "series")
     if page is not None:
@@ -192,7 +191,15 @@ def open_image(
             raise ValueError(
                 "TIFF uses --series; --page/--frame/PDF DPI/--background do not apply"
             )
-        with OMETiffReader(path, series=series) as image:
+        # File magic establishes TIFF first; the .svs suffix selects Omeify's
+        # Aperio profile within TIFF. AperioSVSReader validates the container, so
+        # renaming a non-SVS TIFF does not silently reclassify its pixels.
+        # Neither path invokes Pillow, TIFF conversion or a RAM pyramid.
+        if path.suffix.casefold() == ".svs":
+            from omeify import AperioSVSReader as reader
+        else:
+            from omeify import OMETiffReader as reader
+        with reader(path, series=series) as image:
             yield image
         return
     if series != 0:

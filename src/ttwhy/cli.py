@@ -42,7 +42,7 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
 @click.argument("input_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.version_option(__version__)
 @click.option("--series", type=click.IntRange(min=0), default=0,
-              help="Zero-based OME image series; one series is displayed at a time.")
+              help="Zero-based TIFF image series (OME or SVS); one series at a time.")
 @click.option("--page", type=click.IntRange(min=1),
               help="One-based PDF page to display (default: 1).")
 @click.option("--frame", "frame_index", type=click.IntRange(min=0),
@@ -110,7 +110,7 @@ def main(
     output_png_clip: Path | None, output_geojson_clip: Path | None,
     clipboard: str | None, clip_source: str | None,
 ) -> None:
-    """Explore OME-TIFF, ordinary images, or a PDF page as zoomable terminal text.
+    """Explore OME-TIFF, Aperio SVS, ordinary images, or PDFs as terminal text.
 
     Wheel/+/- zoom, arrows or mouse drag pan, c toggles the channel panel.
     PgUp/PgDn or [/] flip PDF pages/OME series; p jumps to a specific page/series.

@@ -23,8 +23,9 @@ Snapshots call `image_input.open_image()` and pass its open Omeify Image to
 `ViewSession`. The interactive file entry point is `viewer.view_file()`. It uses
 `ImageDocument` for PDF/OME selection and `DocumentNavigation` for controls,
 source ownership, progressive PDF work and the page cache. Both paths still use
-the same `ViewSession` and renderer. OME-TIFF uses only `OMETiffReader`, with its
-original regional reads and stored levels. Ordinary files and completed PDF
+the same `ViewSession` and renderer. OME-TIFF uses `OMETiffReader`; Aperio
+`.svs` TIFFs use `AperioSVSReader`. Both expose the same public Omeify Image,
+regional reads and supplied levels. Ordinary files and completed PDF
 rasters are wrapped through Omeify's public array API.
 
 `view_info.py` derives display geometry from the public image descriptor.
@@ -58,7 +59,9 @@ a stale generation cannot replace the current request's result.
 ## Ordinary-file ingress
 
 `image_input.py` is deliberately a small, explicit front door, not a plugin
-registry. TIFF and PDF signatures select their paths; the remaining path uses
+registry. TIFF and PDF signatures select their paths; within TIFF, `.svs`
+(case-insensitive) selects Omeify's validated Aperio reader and other suffixes
+retain the OME reader. No fallback on decoder failure is attempted. the remaining path uses
 Pillow with a fixed raster-format allowlist. No decoder exception triggers a
 fallback, and formats such as EPS cannot invoke converter subprocesses. The
 Pillow dependency is lazy-imported, while PDFium is an optional `pdf` extra.
@@ -260,9 +263,8 @@ prefetch or another raw tile cache. Render-time optimizations should be compared
 with the exact rectangle-area oracle in tests.
 
 More glyph modes, overlays, and other terminal frontends should share `TextImage`
-and the normalized image pipeline, not add independent contrast semantics. Vendor
-formats should only be added after their reader-level region/pyramid contracts are
-verified. Input conversion support alone is not evidence of interactive read support.
+and the normalized image pipeline, not add independent contrast semantics. Further vendor formats should only be added after their reader-level
+region/pyramid contracts are verified. Input conversion support alone is not evidence of interactive read support.
 
 ## Rectangle selection and clip delivery
 

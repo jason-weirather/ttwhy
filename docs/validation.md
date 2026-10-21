@@ -609,3 +609,39 @@ temporary, out-of-tree naming double, not the published coolname distribution.
 The full Omeify-backed tests, native desktop clipboard acceptance, and live
 macOS/Windows terminal input were not run here. The out-of-tree naming double
 is not packaged in ttwhy or included in this patch.
+
+## Aperio SVS file ingress (October 2026)
+
+This patch targets the attached ttwhy `d3514ef7ad58e59eec3b1fc821d7516398aa8010`
+snapshot. It selects Omeify's public `AperioSVSReader` for TIFF-signature files
+with a case-insensitive `.svs` suffix and retains `OMETiffReader` for other TIFF
+paths. Existing TIFF document-series navigation, RGB presentation, regional
+sampling, read budgets and snapshot handling are shared. No new dependency,
+Python minimum or package-version change is needed; Omeify >=0.21.0 already
+exports this reader.
+
+The TIFF signature check precedes suffix dispatch. `AperioSVSReader` validates
+the actual vendor container and fails on a renamed non-Aperio TIFF. SVS files
+with a different extension are not automatically recognized. No TIFF source
+pixels are decoded using Pillow, materialized as a whole slide by ttwhy, or
+converted into an in-memory dyadic pyramid. Omeify's native levels are used
+when present; unavailable/unknown pyramid scales remain subject to the same
+labelled approximate mapping and read-budget limits as other TIFFs.
+
+**Executed in this environment:** routing tests for lower/uppercase `.svs`,
+non-TIFF signatures, and wrong-kind arguments, plus a tifffile-produced Aperio
+synthetic fixture with a base image, an associated thumbnail and two stored
+reduced levels. The fixture uses lossless Deflate rather than vendor JPEG to
+avoid imposing a codec-dependent baseline. The real Omeify integration tests
+check the vendor reader, exact regional pixels at every level, MPP-derived
+calibration, RGB channels, bounded `ViewSession` sampling, document selection,
+snapshot ANSI output, and non-Aperio rejection when Omeify is installed.
+
+**Outstanding:** this environment does not contain the actual Omeify package,
+and it could not be installed via the unavailable package network. Integration
+tests requiring it are skipped here, not counted as executed. A real production
+Aperio JPEG/JPEG 2000-compressed SVS (and macOS/remote terminal behavior) still
+needs an end-to-end smoke test. Do not infer diagnostic color correctness or a
+process-memory upper bound from the synthetic fixture. Run the suite in the
+normal ttwhy environment and inspect a real scanner file before relying on this
+format in production.
