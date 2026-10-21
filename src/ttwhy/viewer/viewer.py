@@ -278,7 +278,7 @@ class Viewer:
         for _ in range(128):
             try:
                 self.session.plan(viewport, rows=rows, columns=columns,
-                                  channels=self.selected_channels)
+                                  channels=self.selected_channels, allow_sampled_overview=True)
                 break
             except ReadBudgetExceeded as error:
                 if not limit:
@@ -305,6 +305,20 @@ class Viewer:
                         if limited else "Fit slide. Contrast stays fixed until a / l / u / g.")
         self.viewport = viewport
         self.request_frame()
+
+    def fit_full(self) -> None:
+        """Fit the entire image, accepting a clearly labelled sampled overview if needed.
+
+        Opening a large slide still prefers the original faithful bounded crop;
+        Home/r is an explicit request to see the complete slide extent.
+        """
+        if self.selecting or not all(self.canvas_size):
+            return
+        view = Viewport.fit(self.session.info.shape, columns=self.canvas_size[0],
+                            rows=self.canvas_size[1], cell_aspect=self.renderer.cell_aspect,
+                            pixel_aspect=self.session.info.pixel_aspect)
+        self.message = "Fit slide; sampled overview if the native pyramid exceeds the read budget."
+        self._set_viewport(view)
 
     def zoom(self, factor: float, *, anchor: Sequence[float] = (0.5, 0.5)) -> None:
         if self.selecting:
@@ -539,6 +553,8 @@ class Viewer:
         level = "?" if self.samples is None else str(self.samples.plan.level.index)
         if self.samples is not None and self.samples.plan.level.approximate:
             level += " extent-fit"
+        if self.samples is not None and self.samples.plan.sampled_overview is not None:
+            level += " sampled overview"
         size = self.session.info.pixel_size
         calibration = "uncalibrated" if size is None else f"{size[0]:g} x {size[1]:g} {size[2]}/px"
         mode_label = (self.mode_navigation.label if self.mode_navigation.family == "ascii"

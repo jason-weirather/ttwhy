@@ -216,9 +216,10 @@ async def test_real_terminal_app_m_M_switches_and_selection_saves(tmp_path, monk
         def fit(self, *, columns, rows, renderer, channels):
             return Viewport.fit(self.info.shape, columns=columns, rows=rows), False
 
-        def plan(self, viewport, *, rows, columns, channels):
+        def plan(self, viewport, *, rows, columns, channels,
+                 allow_sampled_overview=False):
             return SimpleNamespace(viewport=viewport, channels=tuple(channels),
-                                   sample_shape=(rows, columns),
+                                   sample_shape=(rows, columns), sampled_overview=None,
                                    level=SimpleNamespace(index=0, approximate=False))
 
         def sample(self, plan):

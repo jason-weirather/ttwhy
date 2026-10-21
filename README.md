@@ -475,7 +475,7 @@ still be split by tmux; ttwhy does not implement a shell or manage tmux sessions
 |---|---|
 | Mouse wheel over the image; `+` / `-` | Zoom, anchored to the pointer for the wheel |
 | Arrow keys; left-button drag | Pan the image |
-| `r` or Home | Fit the image, subject to the read budget |
+| `r` or Home | Fit the whole image, using a labelled sampled overview when needed |
 | PageDown / `]`; PageUp / `[` | Next / previous PDF page or OME series |
 | `p`, number, Enter | Go to a PDF page (1-based) or OME series (0-based) |
 | `s`; selection toolbar | Select/copy a rectangle; see the selection controls above. |
@@ -803,6 +803,33 @@ provide a cheap, faithful overview. Initial fit then shows an explicitly labeled
 zooming farther out is rejected rather than silently reading a huge image.
 `ViewSession` itself never constructs a pyramid or substitutes a sparse fake
 overview. RAM pyramids belong only to the explicit ordinary-file ingress path.
+
+### Whole-slide zoom-out and sampled overviews
+
+The initial view still favors ordinary, faithful area-averaged samples. If a
+large slide's smallest stored pyramid level exceeds `--max-read-pixels`, ttwhy
+starts on a **bounded center crop** rather than decoding a huge overview.
+Previously, zooming out was then blocked by that same read-budget check, so
+portrait and unusually large slides could not be seen in full.
+
+**Interactive zoom-out now keeps going.** The mouse wheel and `-` may show the
+whole slide with empty canvas space on the sides (or above/below); **`r`/Home**
+explicitly fits the entire image. When a full native level is too expensive,
+the viewer reads up to 256 small patches spread over the visible image at its
+coarsest available level, staying within the configured source-sample budget
+across all selected channels and RGB components. It interpolates the patch means
+for a **sampled overview** and marks the status `sampled overview` (plus
+`extent-fit` if the vendor level itself lacks declared scale). Zooming closer
+returns automatically to ordinary full-coverage, area-averaged regional reads.
+
+A sampled overview is for **orientation and navigation**, not cell inspection or
+measurement: small tissue structures can be missed or softened between patch
+locations. No exact full-slide average is claimed, and no whole-slide source
+scan or new TIFF pyramid is generated. The zoom and pixel-coordinate geometry
+remain continuous; source-pixel GeoJSON coordinates are not redefined. Library
+`ViewSession.plan()` stays strict by default: the sampled path is an explicit
+opt-in used by the interactive viewer. Noninteractive text snapshots keep their
+previous exact-read/bounded-crop policy.
 
 This sample-count budget and the preview cache size are **not a process-RSS cap**.
 Decoder buffers, masks, area-averaging intermediates, metadata, and terminal output

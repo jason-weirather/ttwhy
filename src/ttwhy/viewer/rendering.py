@@ -47,7 +47,8 @@ def terminal_lines(frame: TextImage) -> list[list[tuple[str, str]]]:
 
 def make_frame(session: ViewSession, request: FrameRequest) -> FrameResult:
     rows, columns = request.renderer.sample_shape(columns=request.columns, rows=request.rows)
-    plan = session.plan(request.viewport, rows=rows, columns=columns, channels=request.channels)
+    plan = session.plan(request.viewport, rows=rows, columns=columns,
+                        channels=request.channels, allow_sampled_overview=True)
     samples = session.sample(plan)
     styles = session.prepare_styles(samples, windows=[request.windows[i] for i in request.channels])
     frame = session.render(samples, styles=styles, renderer=request.renderer,

@@ -117,7 +117,7 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
     @bindings.add("home", filter=browsing & ~channel_focus)
     @bindings.add("r", filter=browsing)
     def fit(event: KeyPressEvent) -> None:
-        viewer.fit()
+        viewer.fit_full()
 
     def arrow(dx: int, dy: int) -> Callable[[KeyPressEvent], None]:
         def move(event: KeyPressEvent) -> None:

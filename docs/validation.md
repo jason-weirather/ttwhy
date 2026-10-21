@@ -645,3 +645,41 @@ needs an end-to-end smoke test. Do not infer diagnostic color correctness or a
 process-memory upper bound from the synthetic fixture. Run the suite in the
 normal ttwhy environment and inspect a real scanner file before relying on this
 format in production.
+
+## Interactive whole-image zoom-out through bounded sampled overviews (October 2026)
+
+This update applies to the supplied ttwhy `34444adc163b3dd51d53e83beefeacd423057556`
+snapshot. The original `Viewport` already allowed letterboxed negative origins;
+the issue was the source-read budget. When an SVS/OME-TIFF coarsest level was
+still too large, initial `fit()` zoomed to a center crop and the viewer rejected
+further zoom-out. The new *interactive-only* sampled-overview path permits a
+full-frame display with no more source pixels requested than the existing budget,
+while labelling the interpolated patch overview as approximate. The `r`/Home
+shortcut now explicitly requests the full image. Initial opening, strict library
+planning, noninteractive snapshots, PDF upgrade fidelity checks, source ownership,
+and precise within-budget regional sampling retain their prior behavior.
+
+**Executed checks:** 72 tests passed covering the new portrait/landscape/no-pyramid
+and tiny-budget tests, actual synthetic Aperio SVS and OME-TIFF decoding, source
+sampling, and PDF document navigation. A separate 197-test run passed the
+renderer, viewer, interactive mode/navigation, image-ingress, and CLI groups.
+The 9 new tests appear in both groups, so the totals should not be added without
+deduplication. The tests include a real prompt_toolkit keyboard session where
+`-` reveals a complete portrait slide with black side margins, `r` requests
+whole-slide fit, and returning to zoom-in removes the sampled-overview marker.
+Regional read calls and their aggregate RGB/sample counts are asserted to remain
+within `max_read_pixels`. No full-slide synthetic image was allocated.
+
+Testing used Python 3.13, the reconstructed Omeify 0.22.0 source from the
+provided `97c97ef` snapshot, tifffile, NumPy, SciPy and prompt_toolkit.
+Synthetic SVS uses lossless Deflate to keep the test independent of scanner JPEG
+codecs. No real vendor JPEG SVS, macOS native terminal, or high-latency storage
+source was exercised. The source-proportional sampled overview is not guaranteed
+to retain tiny tissue structures between its sampled patches and is not suitable
+for morphometric analysis.
+
+Broader selection test runs exposed outdated baseline expectations for retired
+`w` and historical `m` shortcuts; these unrelated behaviors were not changed.
+The real `coolname` distribution and TIFF JPEG codecs were unavailable in this
+environment; an explicitly out-of-tree test double was used for non-vocabulary
+selection tests only, not bundled with the patch.

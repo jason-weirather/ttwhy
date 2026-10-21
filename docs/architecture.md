@@ -44,6 +44,23 @@ that support at the true image edge. Unknown scale uses explicitly approximate
 extent-fit display mapping. This fallback neither changes image calibration nor
 claims knowledge of a vendor resize kernel.
 
+The viewport already permits negative origins (letterboxing), but the former
+viewer rejected any zoom-out whose native coarsest-level rectangle exceeded its
+source-pixel budget. The default `ViewSession.fit()` still chooses the largest
+**faithful** budgeted field, keeping the startup behavior and strict library
+`plan()` contract. For interactive zoom-out and explicit whole-slide fit, the
+viewer opts into `ViewSession.plan(allow_sampled_overview=True)`. Its
+`sampled_overview.py` plan lays out at most 256 small patches across the visible
+image at the coarsest existing level. Their total channel/RGB sample count is
+bounded by `max_read_pixels`; per-patch finite means are interpolated into the
+small display raster, with pixels outside the image kept NaN. This is a
+visibly labelled, approximate navigational product, not an integrated image,
+a physical downsampling calibration, a substitute TIFF pyramid, or a full scan.
+The exact source-regional path takes over automatically whenever it fits.
+PDF auto-refinement still requires a faithful budgeted upgraded view before a
+resolution handoff, rather than silently replacing one approximate overview
+with another.
+
 `intensity_window.py`, `compositing.py`, `text_renderer.py`, and `text_image.py`
 separate raw intensities, normalized RGB, character selection, and serialization.
 Inputs are unchanged and retained outputs own their arrays. ASCII colored hue

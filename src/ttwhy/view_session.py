@@ -18,6 +18,9 @@ from .compositing import CHANNEL_COLORS, ChannelStyle, compose_channels
 from .intensity_window import IntensityWindow, estimate_window
 from .view_info import PyramidLevel, ReadBudgetExceeded, ViewInfo
 from .resampling import resample_image
+from .sampled_overview import (
+    SampledOverview, interpolate_overview, patch_mean, plan_sampled_overview,
+)
 from .text_image import TextImage
 from .text_renderer import TextRenderer
 from .viewport import Viewport
@@ -36,6 +39,7 @@ class ReadPlan:
     channels: tuple[int, ...]
     sample_shape: tuple[int, int]
     source_samples: int
+    sampled_overview: SampledOverview | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,12 +168,16 @@ class ViewSession:
         rows: int,
         columns: int,
         channels: Sequence[int] = (0,),
+        allow_sampled_overview: bool = False,
     ) -> ReadPlan:
         """Choose a stored pyramid level and reject excessive reads before I/O.
 
         rows/columns describe the sample raster from renderer.sample_shape(),
         not necessarily the terminal cell grid. Declared scales are authoritative.
         Unknown-scale levels use labelled approximate extent-fit display mapping.
+        An explicitly allowed sampled overview makes bounded patch reads when even
+        the coarsest native level exceeds the source-read budget. Its interpolated
+        output is approximate, never an exact integrated source overview.
         """
         self._require_image_open()
         rows, columns = positive_integer(rows, "rows"), positive_integer(columns, "columns")
@@ -185,12 +193,29 @@ class ViewSession:
         y1 = min(level.height, max(0, ceil((viewport.y + viewport.height) / level.scale_y)))
         count = max(0, x1 - x0) * max(0, y1 - y0) * len(selected)
         count *= 3 if self.info.is_rgb else 1
+        overview = None
+        if count > self.max_read_pixels and allow_sampled_overview:
+            # Use the coarsest stored level for a navigational sample grid. Do
+            # not silently turn these patch observations into exact area means.
+            level = max(self.info.levels, key=lambda item: item.scale_x * item.scale_y)
+            x0 = min(level.width, max(0, floor(viewport.x / level.scale_x)))
+            y0 = min(level.height, max(0, floor(viewport.y / level.scale_y)))
+            x1 = min(level.width, max(0, ceil((viewport.x + viewport.width) / level.scale_x)))
+            y1 = min(level.height, max(0, ceil((viewport.y + viewport.height) / level.scale_y)))
+            components = len(selected) * (3 if self.info.is_rgb else 1)
+            if self.max_read_pixels >= components:
+                overview = plan_sampled_overview(
+                    viewport, shape=self.info.shape, level=level, rows=rows, columns=columns,
+                    pixel_budget=self.max_read_pixels // components,
+                )
+                count = overview.pixels_per_channel * components
         if count > self.max_read_pixels:
             raise ReadBudgetExceeded(
                 f"Viewport needs {count:,} source samples at level {level.index}; "
                 f"budget is {self.max_read_pixels:,}. Zoom in or supply a coarser pyramid."
             )
-        return ReadPlan(viewport, level, (y0, y1, x0, x1), selected, (rows, columns), count)
+        return ReadPlan(viewport, level, (y0, y1, x0, x1), selected, (rows, columns),
+                        count, overview)
 
     def fit(
         self,
@@ -226,7 +251,8 @@ class ViewSession:
             # Revalidate a public record; do not allow a constructed plan to
             # bypass budget, source, level, or channel validation.
             expected = self.plan(plan.viewport, rows=plan.sample_shape[0],
-                                 columns=plan.sample_shape[1], channels=plan.channels)
+                                 columns=plan.sample_shape[1], channels=plan.channels,
+                                 allow_sampled_overview=plan.sampled_overview is not None)
             if plan != expected:
                 raise ValueError("ReadPlan does not match this source and sampling geometry")
             if plan in self._cache:
@@ -235,6 +261,7 @@ class ViewSession:
             y0, y1, x0, x1 = plan.bounds
             rows, columns = plan.sample_shape
             planes = []
+            overview = plan.sampled_overview
             for channel in plan.channels:
                 if x0 >= x1 or y0 >= y1:
                     shape = ((rows, columns, 3) if self.info.is_rgb else (rows, columns))
@@ -244,21 +271,33 @@ class ViewSession:
                     if self._cached_pair is not None and pair != self._cached_pair:
                         self._image.clear_cache()
                     self._cached_pair = pair
-                    pixels = self._image[channel].read_region(
-                        y0, y1, x0, x1, level=plan.level.index,
-                    )
-                    viewport, level = plan.viewport, plan.level
-                    preview = resample_image(
-                        pixels, rows=rows, columns=columns,
-                        bounds=(viewport.x / level.scale_x - x0,
-                                viewport.y / level.scale_y - y0,
-                                viewport.width / level.scale_x,
-                                viewport.height / level.scale_y),
-                        coverage_shape=(
-                            min(y1 - y0, self.info.shape[0] / level.scale_y - y0),
-                            min(x1 - x0, self.info.shape[1] / level.scale_x - x0),
-                        ),
-                    )
+                    if overview is not None:
+                        # Each native region is small. Sum of all such reads,
+                        # including every RGB sample/selected channel, is <=budget.
+                        readings = [patch_mean(self._image[channel].read_region(
+                            *region, level=plan.level.index)) for region in overview.regions]
+                        tail = (3,) if self.info.is_rgb else ()
+                        grid = np.asarray(readings, dtype=np.float64).reshape(
+                            (*overview.grid_shape, *tail))
+                        preview = interpolate_overview(
+                            grid, overview, viewport=plan.viewport, shape=self.info.shape,
+                            rows=rows, columns=columns)
+                    else:
+                        pixels = self._image[channel].read_region(
+                            y0, y1, x0, x1, level=plan.level.index,
+                        )
+                        viewport, level = plan.viewport, plan.level
+                        preview = resample_image(
+                            pixels, rows=rows, columns=columns,
+                            bounds=(viewport.x / level.scale_x - x0,
+                                    viewport.y / level.scale_y - y0,
+                                    viewport.width / level.scale_x,
+                                    viewport.height / level.scale_y),
+                            coverage_shape=(
+                                min(y1 - y0, self.info.shape[0] / level.scale_y - y0),
+                                min(x1 - x0, self.info.shape[1] / level.scale_x - x0),
+                            ),
+                        )
                 planes.append(preview)
             values = planes[0] if self.info.is_rgb else np.stack(planes)
             samples = ViewSamples(values, plan, self.info.is_rgb)
