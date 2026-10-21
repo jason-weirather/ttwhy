@@ -746,3 +746,39 @@ array-cache cap. Cancellation occurs between regional chunks; the current native
 read is joined, not forcibly killed. A completed cache is full-coverage relative
 to its chosen native level, not a guarantee of exact full-resolution statistics
 or recovery of features already lost by the scanner's coarse level.
+
+
+## Quick whole-slide startup and snapshots (October 2026)
+
+This incremental patch targets the supplied `65955f525e793b0bffe34587692961f723488789`
+snapshot. A metadata-only check immediately fits the full image if a suitable
+native pyramid rectangle is within the per-request budget. Otherwise a cached
+full-coverage overview may be prepared for up to two seconds before the first
+interactive frame, only when the coarsest native level contains no more than
+8,388,608 selected source samples (including RGB components). The existing cache
+memory, total-scan and per-chunk work caps still apply. Native reads are
+cooperatively cancellable between chunks, never forcibly interrupted. Slow or
+ineligible scans preserve the responsive original bounded-crop opening.
+
+Snapshots now use the same quick preparation and **always fit the whole image**
+when no explicit region is supplied: native region when affordable, completed
+cached reduction if quick, and labelled sampled fallback otherwise. The existing
+`--region` geometry/strict budget, snapshot atomic writes and output modes remain
+unchanged. `--startup-overview-seconds 0` skips pre-first-frame scanning but does
+not prevent normal interactive idle preparation. Output may vary by I/O timing
+between cached and sparse reductions. The startup time limit does not impose a
+hard timeout on an already-running native TIFF codec call.
+
+Executed regression run: **386 passed, one warning**, with the existing PTY,
+clipping, multiselection and GeoJSON historical test modules excluded. The suite
+used actual Omeify 0.22.0 source from the available `97c97ef` snapshot, not a
+mocked TIFF reader. New cases include immediate native letterbox, full-coverage
+cache before the first frame, time-limit fallback, user-zoom preemption, metadata
+work-cap rejection, actual synthetic Aperio SVS and OME-TIFF decoding, full-slide
+snapshot under tiny budgets, explicit region and a snapshot from a real SVS
+fixture. Python 3.11 grammar parsing passes; this was executed under Python 3.13.
+
+The entire historical suite, production JPEG SVS, remote/slow network
+filesystems and native macOS terminal behavior remain separate validation
+requirements. Native codec calls cannot be forcibly timed out and RAM budgets
+do not include third-party decoder caches or temporary codec scratch.

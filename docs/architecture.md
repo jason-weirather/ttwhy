@@ -74,9 +74,14 @@ invalidates old sparse camera-preview cache entries, not already-issued immutabl
 ViewSamples. Strict library plans and PDF source-upgrade fidelity checks do not
 silently opt into these display reductions. Source geometry is never rewritten.
 
-The render pump services foreground requests before another overview chunk. It
-starts opportunistic preparation only after a frame has reached the UI, yields
-between chunks, and uses no second source-reader thread. Selection pauses further
+The render pump services foreground requests before another overview chunk. A
+shared, metadata-only startup policy chooses immediate whole-slide native fit
+when affordable. Otherwise, for small eligible coarsest levels, the render pump
+may attempt up to two seconds of chunked work before the first frame. The normal
+bounded center crop remains the first frame if the cache does not complete. User
+interaction and navigation invalidate the startup generation, preventing a late
+unexpected camera recenter. After the first frame, ordinary idle preparation
+resumes, yielding between chunks, with no second source-reader thread. Selection pauses further
 steps and guards against frame replacement after an in-flight step. Navigation
 installs sources only after the current worker operation finishes, then releases
 the old overview cache. Shutdown joins one current read, not a whole-level scan.
@@ -84,6 +89,11 @@ Channel changes discard obsolete partial work on the next step. Completed result
 remain useful across camera, contrast and renderer changes. Errors abandon the
 partial arrays and suppress automatic retry until cache clearing/new session.
 The sparse view remains an explicitly labelled temporary or capped fallback.
+Snapshots share this startup policy synchronously, without any idle/background
+worker. Their default camera covers the full image, rendering from native,
+completed cache, or a clearly labelled sparse preview. Explicit `--region`
+remains strict. The clock limit is cooperative between native reads, so a single
+codec call can exceed it and snapshot output may vary with I/O performance.
 
 `intensity_window.py`, `compositing.py`, `text_renderer.py`, and `text_image.py`
 separate raw intensities, normalized RGB, character selection, and serialization.

@@ -516,23 +516,27 @@ def test_cli_forwards_independent_overview_budgets(tmp_path, monkeypatch):
     monkeypatch.setattr(click.testing._NamedTextIOWrapper, "isatty", lambda self: True)
     result = CliRunner().invoke(main, [str(path), "--mode", "simple",
                                      "--overview-cache-mib", "12",
-                                     "--overview-max-source-pixels", "12345"])
+                                     "--overview-max-source-pixels", "12345",
+                                     "--startup-overview-seconds", "1.25"])
     assert result.exit_code == 0, (result.output, result.exception)
     assert received["overview_cache_mib"] == 12
     assert received["overview_max_source_pixels"] == 12345
+    assert received["startup_overview_seconds"] == 1.25
 
 
-def test_snapshot_does_not_build_runtime_overviews(mif, monkeypatch):
+def test_snapshot_can_disable_quick_build_and_still_show_whole_image(mif, monkeypatch):
     from click.testing import CliRunner
     from ttwhy.cli import main
 
     def forbidden(*args, **kwargs):
-        pytest.fail("Snapshot must not schedule idle overview work")
+        pytest.fail("Startup scan disabled; snapshot should use a sampled fallback")
 
     monkeypatch.setattr(ViewSession, "step_overview", forbidden)
-    result = CliRunner().invoke(main, [str(mif[0]), "--snapshot", "--max-read-pixels", "100"])
-    assert result.exit_code == 0
-    assert "bounded center crop" in result.output
+    result = CliRunner().invoke(main, [str(mif[0]), "--snapshot", "--max-read-pixels", "100",
+                                       "--startup-overview-seconds", "0"])
+    assert result.exit_code == 0, result.output
+    assert "Sampled overview" in result.output
+    assert "bounded center crop" not in result.output
 
 
 def test_svs_cached_overview_in_real_terminal(tmp_path):

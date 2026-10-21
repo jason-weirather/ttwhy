@@ -49,7 +49,9 @@ all-pure-Python codec stack. There is no ImageMagick, Ghostscript, Poppler comma
 OpenCV, browser, or external converter. PDF refinement uses standard-library
 multiprocessing to run the same Python reader in isolated workers. Decoders are
 imported only when used; array rendering does not import Pillow, PDFium, Omeify, or the terminal UI.
-OME-TIFF and Aperio SVS still open regionally without a scan or pyramid build.
+OME-TIFF and Aperio SVS still open regionally without an eager file-ingress
+scan or pyramid build. A small optional viewer overview can be prepared from
+regional reads before the first frame or during idle time.
 Ordinary files explicitly take the eager, RAM-only path described below.
 
 ## Aperio SVS, ordinary images and PDF pages
@@ -131,9 +133,9 @@ A new page/series fits the display. PDF contrast, gamma and rendering mode remai
 selected as you turn pages. A new OME series resets channel selection to 0 and
 initializes its own intensity windows; RGB/intensity default density follows the
 new series unless explicitly overridden. Opening an unsupported series reports
-an error and retains the previous view. OME reads still use only Omeify, with no
-pixel scans during opening. Eligible sources can acquire a bounded display overview
-later during idle time, as described below.
+an error and retains the previous view. OME reads still use only Omeify;
+small, budgeted native-level overview scans may now run before the first frame,
+with larger eligible scans continuing incrementally during idle time.
 
 ### Progressive PDF detail
 
@@ -617,6 +619,9 @@ ttwhy slide.ome.tif --snapshot --mode shape --no-color -o shape.txt
 ttwhy slide.ome.tif --snapshot --mode simple -o preview.txt
 
 ttwhy slide.ome.tif --snapshot --mode blocks --ansi -o preview.ansi
+
+# Full-slide snapshots also work when no native coarse level fits the read budget.
+ttwhy slide.svs --snapshot --ansi --max-read-pixels 100000 -o whole-slide.ansi
 ```
 
 Plain snapshots contain no escape sequences. `--color` and half-block snapshots
@@ -811,9 +816,13 @@ fits in one foreground request.
 
 ### Whole-slide zoom-out and cached overviews
 
-The initial camera is unchanged: a native area-averaged view or an explicitly
-labelled **bounded center crop**. Wheel/`-` zoom-out and **`r`/Home** can still show
-the whole image, with black padding rather than stretching or cropping it.
+The initial camera now **fits the whole image** when a native stored level fits
+the source-read budget. If not, ttwhy attempts a small, complete cached reduction
+for up to **two seconds** before its first frame, without freezing the terminal UI.
+If preparation cannot finish promptly, opening retains a bounded center crop and
+the idle-time builder continues as before. Wheel/`-` zoom-out and **`r`/Home**
+can always show the whole image with black padding instead of stretching it.
+User-specified `--region` is never replaced by an automatic fit.
 
 After the first displayed frame, idle worker iterations may prepare a reusable
 **full-coverage overview from the coarsest native level**. Every native pixel in
@@ -847,6 +856,8 @@ ttwhy slide.svs                               # automatic idle-time cache prepar
 ttwhy slide.svs --overview-cache-mib 128       # larger retention allowance
 ttwhy slide.svs --overview-cache-mib 0         # disable preparation; retain sampled fallback
 ttwhy slide.svs --overview-max-source-pixels 268435456  # explicitly allow more scan I/O
+ttwhy slide.svs --startup-overview-seconds 0     # skip quick startup scan (idle build remains)
+ttwhy slide.svs --startup-overview-seconds 3     # allow a little longer before first frame
 ```
 
 Foreground frames take priority over further overview chunks. Preparation uses
@@ -885,8 +896,17 @@ build, while `clear_cache()` also removes completed overviews and camera preview
 `sample()` may use a completed cache for an explicitly allowed sampled plan,
 reporting `ViewSamples.cached_overview=True`; the plan is unchanged and its
 `source_samples` remains the fallback's planned budget, not a count of actual
-cache-hit I/O. Noninteractive snapshots do not schedule overview construction
-and retain their prior exact-read/bounded-crop behavior.
+cache-hit I/O. Snapshots now **fit the entire slide by default**, using a native level when
+it is affordable, the same short full-coverage cache preparation when eligible,
+or the labelled sampled overview otherwise. They do not silently export a center
+crop because of a small read budget. `--region` still requests an exact native
+field and retains its strict read-budget check. Snapshot diagnostics distinguish
+`Cached full-coverage overview` from `Sampled overview` on stderr. These are
+visualization products, not quantitative measurements. The time limit is checked
+between reads; a single slow native codec read may overrun the nominal deadline.
+Time-limited snapshot output can therefore differ with I/O performance; for a
+repeatable sampled fallback set `--startup-overview-seconds 0` (and for an exact
+field use `--region`).
 
 These sample-count and array-cache budgets are **not a process-RSS cap**.
 Decoder buffers, masks, area-averaging intermediates, metadata, and terminal output

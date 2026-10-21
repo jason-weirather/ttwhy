@@ -85,14 +85,21 @@ def test_interactive_requires_terminal(mif):
     assert result.exit_code != 0 and "--snapshot" in result.output
 
 
-def test_crop_and_budget_warning(mif):
+def test_explicit_region_and_whole_image_snapshot_with_tiny_budget(mif):
     result = CliRunner().invoke(main, [
         str(mif[0]), "--snapshot", "--region", "10", "10", "20", "20",
         "--columns", "10", "--rows", "10",
     ])
     assert result.exit_code == 0
     result = CliRunner().invoke(main, [str(mif[0]), "--snapshot", "--max-read-pixels", "100"])
-    assert result.exit_code == 0 and "bounded center crop" in result.output
+    assert result.exit_code == 0, result.output
+    assert "full-coverage overview" in result.output
+    assert len(result.stdout.splitlines()) == 41
+    # A caller-selected field is never overridden by the automatic full-slide fit.
+    selected = CliRunner().invoke(main, [str(mif[0]), "--snapshot", "--max-read-pixels", "100",
+                                         "--region", "1", "1", "5", "5"])
+    assert selected.exit_code == 0, selected.output
+    assert "overview" not in selected.output.lower()
 
 
 def test_file_output_preflight_runs_before_decode(mif, tmp_path, monkeypatch):

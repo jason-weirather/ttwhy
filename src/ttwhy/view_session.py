@@ -158,6 +158,25 @@ class ViewSession:
     def overview_status(self) -> str:
         return self._overviews.status
 
+    def overview_ready(self, channels: Sequence[int] = (0,)) -> bool:
+        """Whether all selected channels have a complete cached reduction; no I/O."""
+        with self._lock:
+            self._require_image_open()
+            selected = self._select_channels(channels)
+            return self._overviews.get(self.info, selected, self.max_read_pixels) is not None
+
+    def quick_overview_eligible(self, channels: Sequence[int] = (0,)) -> bool:
+        """Metadata-only estimate for a short startup scan (not a time promise)."""
+        from .startup_overview import MAX_STARTUP_OVERVIEW_SOURCE_SAMPLES
+
+        with self._lock:
+            self._require_image_open()
+            selected = self._select_channels(channels)
+            spec, _ = self._overviews.spec(self.info, selected, self.max_read_pixels)
+            return (spec is not None and
+                    spec.level.height * spec.level.width * spec.components * len(selected)
+                    <= MAX_STARTUP_OVERVIEW_SOURCE_SAMPLES)
+
     def step_overview(self, channels: Sequence[int] = (0,)) -> OverviewProgress:
         """Prepare at most one native chunk of an optional whole-image display cache.
 

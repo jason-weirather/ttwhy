@@ -7,6 +7,7 @@ from ..image_input import open_image
 from ..pdf_workers import DEFAULT_PDF_CACHE_PAGES
 from ..text_renderer import TextRenderer
 from ..runtime_overview import DEFAULT_OVERVIEW_CACHE_MIB, DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS
+from ..startup_overview import DEFAULT_STARTUP_OVERVIEW_SECONDS
 from ..view_session import ViewSession
 from .navigation import DocumentNavigation
 from .clipping import clip_options
@@ -19,6 +20,7 @@ async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
                     viewport=None, cache_mib=32.0, max_read_pixels=4_194_304,
                     overview_cache_mib=DEFAULT_OVERVIEW_CACHE_MIB,
                     overview_max_source_pixels=DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS,
+                    startup_overview_seconds=DEFAULT_STARTUP_OVERVIEW_SECONDS,
                     input=None, output=None, output_text_clip=None, output_ansi_clip=None,
                     output_png_clip=None, output_geojson_clip=None, clipboard="auto",
                     clip_source="auto", clip_overwrite=True) -> None:
@@ -52,7 +54,8 @@ async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
                                     invert=session.info.is_rgb if invert is None else invert,
                                     cell_aspect=cell_aspect)
             await Viewer(session, channels=channels, window=window, renderer=renderer,
-                         viewport=viewport, **clipping).run(input=input, output=output)
+                         viewport=viewport, startup_overview_seconds=startup_overview_seconds,
+                         **clipping).run(input=input, output=output)
         return
     initial = document.initialize()
     try:
@@ -71,7 +74,8 @@ async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
                                 invert=navigation.session.info.is_rgb if invert is None else invert,
                                 cell_aspect=cell_aspect)
         viewer = Viewer(navigation.session, navigation=navigation, channels=channels,
-                        window=window, renderer=renderer, viewport=viewport, **clipping)
+                        window=window, renderer=renderer, viewport=viewport,
+                        startup_overview_seconds=startup_overview_seconds, **clipping)
         await viewer.run(input=input, output=output)
     finally:
         # Idempotent stop/close also covers invalid initial channel selection or

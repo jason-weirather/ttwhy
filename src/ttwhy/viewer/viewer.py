@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from time import monotonic
 
 import numpy as np
 from prompt_toolkit import Application
@@ -19,6 +20,8 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import TextArea
 
 from ..intensity_window import IntensityWindow
+from ..startup_overview import (DEFAULT_STARTUP_OVERVIEW_SECONDS, startup_fit,
+                                validate_startup_seconds)
 from ..view_info import ReadBudgetExceeded
 from ..text_image import TextImage
 from ..terminal_capabilities import configured_color_depth
@@ -54,7 +57,14 @@ class Viewer:
         source_path=None, output_text_clip=None, output_ansi_clip=None,
         output_png_clip=None, output_geojson_clip=None,
         clipboard="auto", clip_source="auto", clip_overwrite=True,
+        startup_overview_seconds: float = DEFAULT_STARTUP_OVERVIEW_SECONDS,
     ) -> None:
+        self.startup_overview_seconds = validate_startup_seconds(startup_overview_seconds)
+        # Quick-cache candidate belongs to exactly one initial camera generation.
+        # User input or document navigation supersedes it without a surprise recenter.
+        self._startup_target: Viewport | None = None
+        self._startup_generation: int | None = None
+        self._startup_session: ViewSession | None = None
         self.session = session
         self.navigation = navigation
         self.selected_channels = session._select_channels(channels)
@@ -218,6 +228,10 @@ class Viewer:
                     self.application.exit(exception=error)
                     return
                 continue
+            if request.generation == self._startup_generation:
+                request = await self._startup_quick_fit(request)
+            if request.generation != self.generation or self.selecting:
+                continue
             try:
                 result = await asyncio.get_running_loop().run_in_executor(
                     self._executor, make_frame, self.session, request
@@ -245,6 +259,36 @@ class Viewer:
             # Give foreground requests priority. Idle iterations prepare only one
             # overview chunk each, off the UI thread and on this same executor.
             self._wake.set()
+
+    async def _startup_quick_fit(self, request: FrameRequest) -> FrameRequest:
+        """Try a short chunked reduction before the first frame, without blocking UI.
+
+        A later zoom/channel/series command cancels the decision between chunks.
+        A slow native TIFF read may outlast the nominal deadline; it must finish
+        before that source is used again or closed.
+        """
+        target, session = self._startup_target, self._startup_session
+        self._startup_target = self._startup_generation = self._startup_session = None
+        if target is None or session is not self.session:
+            return request
+        deadline = monotonic() + self.startup_overview_seconds
+        while (monotonic() < deadline and request.generation == self.generation
+               and not self.selecting and session is self.session and self._pending is None
+               and (self.navigation is None or
+                    self.navigation.target == self.navigation.active.index)):
+            progress = await asyncio.get_running_loop().run_in_executor(
+                self._executor, session.step_overview, request.channels)
+            if not progress.pending:
+                break
+            await asyncio.sleep(0)
+        if (request.generation == self.generation and not self.selecting
+                and session is self.session and self._pending is None
+                and session.overview_ready(request.channels)):
+            self.viewport = target.centered_within(session.info.shape)
+            self.message = "Fit whole slide using a cached overview."
+            self.application.invalidate()
+            return replace(request, viewport=self.viewport)
+        return request
 
     async def _step_overview(self) -> None:
         if self.samples is None or self.busy:
@@ -329,18 +373,31 @@ class Viewer:
         self.request_frame()
 
     def fit(self) -> None:
-        if self.selecting:
+        if self.selecting or not all(self.canvas_size):
             return
-        if not all(self.canvas_size):
-            return
-        viewport, limited = self.session.fit(
-            columns=self.canvas_size[0], rows=self.canvas_size[1], renderer=self.renderer,
-            channels=self.selected_channels,
-        )
-        self.message = ("Read budget: bounded center crop; zoom out / r for overview."
-                        if limited else "Fit slide. Contrast stays fixed until a / l / u / g.")
-        self.viewport = viewport
+        self._startup_target = self._startup_generation = self._startup_session = None
+        full, native = startup_fit(self.session, self.renderer,
+                                   columns=self.canvas_size[0], rows=self.canvas_size[1],
+                                   channels=self.selected_channels)
+        if native or self.session.overview_ready(self.selected_channels):
+            self.viewport = full
+            self.message = "Fit whole slide. Contrast stays fixed until a / l / u / g."
+        else:
+            # Slow/giant sources retain the previous responsive bounded-crop
+            # opening. A quick eligible cache may replace that first camera
+            # *before* its initial frame, never after the user starts navigating.
+            self.viewport, limited = self.session.fit(
+                columns=self.canvas_size[0], rows=self.canvas_size[1], renderer=self.renderer,
+                channels=self.selected_channels)
+            self.message = ("Read budget: bounded center crop; zoom out / r for overview."
+                            if limited else "Fit slide. Contrast stays fixed until a / l / u / g.")
+            if (self.startup_overview_seconds > 0 and
+                    self.session.quick_overview_eligible(self.selected_channels)):
+                self._startup_target = full
+                self._startup_session = self.session
         self.request_frame()
+        if self._startup_target is not None:
+            self._startup_generation = self.generation
 
     def fit_full(self) -> None:
         """Fit the entire image, accepting a clearly labelled sampled overview if needed.

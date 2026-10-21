@@ -17,6 +17,8 @@ from .text_renderer import RENDER_MODES, TextRenderer
 from .text_clip import CLIPBOARD_MODES, CLIP_SOURCES
 from .view_session import ViewSession
 from .runtime_overview import DEFAULT_OVERVIEW_CACHE_MIB, DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS
+from .startup_overview import (DEFAULT_STARTUP_OVERVIEW_SECONDS, prepare_fast_overview,
+                               startup_fit)
 from .viewport import Viewport
 
 
@@ -80,11 +82,15 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
 @click.option("--overview-cache-mib", type=click.FloatRange(min=0),
               default=DEFAULT_OVERVIEW_CACHE_MIB,
               help="RAM for completed/in-progress full-coverage display overviews; 0 disables. "
-                   "Separate from the preview cache; interactive only.")
+                   "Separate from preview cache; viewer and snapshots.")
 @click.option("--overview-max-source-pixels", type=click.IntRange(min=0),
               default=DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS,
               help="Total native samples allowed in an overview scan, including channels/RGB. "
                    "Separate from each chunk's --max-read-pixels limit; 0 disables.")
+@click.option("--startup-overview-seconds", type=click.FloatRange(min=0),
+              default=DEFAULT_STARTUP_OVERVIEW_SECONDS,
+              help="Attempt a quick whole-slide cache before first view/snapshot (default: 2s); "
+                   "0 skips startup scanning. Native reads can exceed a deadline.")
 @click.option("--snapshot", is_flag=True, help="Render one text frame without starting the viewer.")
 @click.option("--columns", type=click.IntRange(min=1), default=120,
               help="Snapshot width in characters.")
@@ -114,7 +120,7 @@ def main(
     upper: float | None, mode: str, color: bool | None, invert: bool | None,
     cell_aspect: float, region: tuple[float, ...] | None, cache_mib: float,
     max_read_pixels: int, overview_cache_mib: float, overview_max_source_pixels: int,
-    snapshot: bool, columns: int, rows: int, ansi: bool,
+    startup_overview_seconds: float, snapshot: bool, columns: int, rows: int, ansi: bool,
     output_path: Path | None, no_overwrite: bool,
     output_text_clip: Path | None, output_ansi_clip: Path | None,
     output_png_clip: Path | None, output_geojson_clip: Path | None,
@@ -191,6 +197,7 @@ def main(
                 cell_aspect=cell_aspect, viewport=viewport, cache_mib=cache_mib,
                 max_read_pixels=max_read_pixels, overview_cache_mib=overview_cache_mib,
                 overview_max_source_pixels=overview_max_source_pixels,
+                startup_overview_seconds=startup_overview_seconds,
                 output_text_clip=output_text_clip,
                 output_ansi_clip=output_ansi_clip, output_png_clip=output_png_clip,
                 output_geojson_clip=output_geojson_clip, clipboard=clipboard or "auto",
@@ -202,8 +209,9 @@ def main(
         with (
             open_image(input_path, series=series, page=page, frame=frame_index,
                        pdf_dpi=dpi if kind == "pdf" else None, background=matte) as image,
-            ViewSession(image, name=name,
-                        cache_mib=cache_mib, max_read_pixels=max_read_pixels) as session,
+            ViewSession(image, name=name, cache_mib=cache_mib,
+                        max_read_pixels=max_read_pixels, overview_cache_mib=overview_cache_mib,
+                        overview_max_source_pixels=overview_max_source_pixels) as session,
         ):
             if kind == "pdf" and viewport is not None:
                 # --region stays on the quick-preview coordinate grid even when
@@ -219,21 +227,27 @@ def main(
                 mode=mode, color=use_color,
                 invert=session.info.is_rgb if invert is None else invert, cell_aspect=cell_aspect,
             )
-            if viewport is None:
-                viewport, limited = session.fit(columns=columns, rows=rows, renderer=renderer,
-                                                channels=selected)
-                if limited:
-                    click.echo(
-                        "Read budget: rendering a bounded center crop, not the whole image.",
-                        err=True,
-                    )
+            whole_snapshot = viewport is None
+            if whole_snapshot:
+                # Snapshots depict the full extent by default, as does a quick
+                # interactive start. A costly overview can use a labelled sparse
+                # fallback rather than silently exporting a center crop.
+                viewport, native = startup_fit(session, renderer, columns=columns,
+                                               rows=rows, channels=selected)
+                if not native:
+                    prepare_fast_overview(session, selected, seconds=startup_overview_seconds)
             sample_rows, sample_columns = renderer.sample_shape(columns=columns, rows=rows)
             plan = session.plan(viewport, rows=sample_rows, columns=sample_columns,
-                                channels=selected)
+                                channels=selected, allow_sampled_overview=whole_snapshot)
             if plan.level.approximate:
                 click.echo("Pyramid scale unknown: using approximate extent-fit display mapping.",
                            err=True)
             samples = session.sample(plan)
+            if samples.plan.sampled_overview is not None:
+                click.echo(("Cached full-coverage overview: native coarse pixels were reduced "
+                            "for this snapshot." if samples.cached_overview else
+                            "Sampled overview: sparse navigational preview, not a complete "
+                            "native reduction."), err=True)
             styles = session.prepare_styles(samples, windows=[window] * len(selected))
             frame = session.render(samples, styles=styles, renderer=renderer,
                                    columns=columns, rows=rows)
