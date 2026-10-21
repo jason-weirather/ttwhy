@@ -44,22 +44,46 @@ that support at the true image edge. Unknown scale uses explicitly approximate
 extent-fit display mapping. This fallback neither changes image calibration nor
 claims knowledge of a vendor resize kernel.
 
-The viewport already permits negative origins (letterboxing), but the former
-viewer rejected any zoom-out whose native coarsest-level rectangle exceeded its
-source-pixel budget. The default `ViewSession.fit()` still chooses the largest
-**faithful** budgeted field, keeping the startup behavior and strict library
-`plan()` contract. For interactive zoom-out and explicit whole-slide fit, the
-viewer opts into `ViewSession.plan(allow_sampled_overview=True)`. Its
-`sampled_overview.py` plan lays out at most 256 small patches across the visible
-image at the coarsest existing level. Their total channel/RGB sample count is
-bounded by `max_read_pixels`; per-patch finite means are interpolated into the
-small display raster, with pixels outside the image kept NaN. This is a
-visibly labelled, approximate navigational product, not an integrated image,
-a physical downsampling calibration, a substitute TIFF pyramid, or a full scan.
-The exact source-regional path takes over automatically whenever it fits.
-PDF auto-refinement still requires a faithful budgeted upgraded view before a
-resolution handoff, rather than silently replacing one approximate overview
-with another.
+The viewport permits negative origins (letterboxing). Initial `fit()` preserves
+its native-read/bounded-center-crop contract. Interactive plans may fall back to
+a coarser complete native rectangle, then to the labelled sparse grid in
+`sampled_overview.py` when no native region fits the foreground budget.
+
+`runtime_overview.py` adds an optional session-local display cache, not a new
+Omeify ImageSource, source pyramid level, reader or calibration. `step_overview()`
+performs one bounded native regional read on the existing display executor.
+Every source pixel of the coarsest level is visited once per completed channel
+build. Integer power-of-two blocks accumulate float64 weighted values and finite
+support, including partial native edge footprints. The arrays are normalized by
+actual output-cell support in place and published read-only only on completion.
+Two-stage area sampling is a display approximation within each reduced pixel;
+full coverage does not mean exact arbitrary-footprint full-resolution statistics.
+
+The LRU byte cap includes one unfinished build plus completed channel entries.
+Resolution is chosen so the complete selected channel set fits, avoiding mutual
+eviction/thrashing. Other channel entries are evictable. A separate selected-set
+source-sample cap declines costly automatic scans; it is not the per-chunk limit.
+Native decoder caches, scratch and retained ViewSamples are separate allocations.
+
+Planning stays metadata-only and deterministic, independent of cache readiness.
+For an explicitly allowed sparse ReadPlan, `sample()` first looks for a complete
+cached channel set and sets `ViewSamples.cached_overview` on cache use. This keeps
+outstanding plans valid while preparation progresses. Plan source_samples is the
+planned sparse budget, not a claim of source I/O on a cache hit. Publication
+invalidates old sparse camera-preview cache entries, not already-issued immutable
+ViewSamples. Strict library plans and PDF source-upgrade fidelity checks do not
+silently opt into these display reductions. Source geometry is never rewritten.
+
+The render pump services foreground requests before another overview chunk. It
+starts opportunistic preparation only after a frame has reached the UI, yields
+between chunks, and uses no second source-reader thread. Selection pauses further
+steps and guards against frame replacement after an in-flight step. Navigation
+installs sources only after the current worker operation finishes, then releases
+the old overview cache. Shutdown joins one current read, not a whole-level scan.
+Channel changes discard obsolete partial work on the next step. Completed results
+remain useful across camera, contrast and renderer changes. Errors abandon the
+partial arrays and suppress automatic retry until cache clearing/new session.
+The sparse view remains an explicitly labelled temporary or capped fallback.
 
 `intensity_window.py`, `compositing.py`, `text_renderer.py`, and `text_image.py`
 separate raw intensities, normalized RGB, character selection, and serialization.
@@ -109,7 +133,8 @@ sums and finite counts propagate to the next reduction before dtype rounding;
 odd edges are neither padded nor equally weighted against larger supports.
 Explicit `ImageLevel.downsample_yx` values are powers of two, not ratios of rounded
 array dimensions. Omeify borrows these owned arrays through `from_array(copy=False)`.
-The generic ViewSession does not acquire pyramid-building behavior.
+This eager ingress pyramid is distinct from the generic ViewSession's optional,
+incrementally constructed display-overview cache.
 
 This ingress intentionally pays the complete decode/build cost in RAM. Its
 retained pyramid and transient sums/copies are outside the session preview-cache

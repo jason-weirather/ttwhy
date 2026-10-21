@@ -18,6 +18,10 @@ from .compositing import CHANNEL_COLORS, ChannelStyle, compose_channels
 from .intensity_window import IntensityWindow, estimate_window
 from .view_info import PyramidLevel, ReadBudgetExceeded, ViewInfo
 from .resampling import resample_image
+from .runtime_overview import (
+    DEFAULT_OVERVIEW_CACHE_MIB, DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS,
+    OverviewCache, OverviewProgress,
+)
 from .sampled_overview import (
     SampledOverview, interpolate_overview, patch_mean, plan_sampled_overview,
 )
@@ -48,11 +52,14 @@ class ViewSamples:
 
     Values are area-averaged raw display samples, not quantitative whole-slide
     measurements. The mask is represented by NaN rather than an extra raster.
+    cached_overview identifies a completed full-coverage display reduction used
+    instead of the sparse fallback described by the retained ReadPlan.
     """
 
     values: NDArray
     plan: ReadPlan
     is_rgb: bool
+    cached_overview: bool = False
 
     def __post_init__(self) -> None:
         value = np.array(self.values, copy=True)
@@ -74,14 +81,17 @@ class ViewSession:
 
     Use a context to release preview caches and the session-bound borrowed view.
     Closing the session never closes its parent image. Closing/reopening the
-    parent invalidates the session, including cached previews. No new image
-    exposure, file, or pyramid is created. Calls within the session are serialized;
+    parent invalidates the session, including cached previews. Optional runtime
+    overviews are display-only reductions, never new source levels or files.
+    Calls within the session are serialized;
     callers must not concurrently mutate or close the parent.
     """
 
     def __init__(
         self, image: Image, *, name: str = "Image", cache_mib: float = 32.0,
         max_read_pixels: int = 4_194_304,
+        overview_cache_mib: float = DEFAULT_OVERVIEW_CACHE_MIB,
+        overview_max_source_pixels: int = DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS,
     ) -> None:
         from omeify import Image
 
@@ -97,6 +107,8 @@ class ViewSession:
             raise ValueError("cache_mib must be finite and nonnegative")
         self.max_read_pixels = positive_integer(max_read_pixels, "max_read_pixels")
         self._info = ViewInfo.from_image(image, name=name)
+        self._overviews = OverviewCache(cache_mib=overview_cache_mib,
+                                        max_source_pixels=overview_max_source_pixels)
         # A public Omeify view pins the original session without private epochs
         # or zero-pixel reads merely to check lifetime.
         self._image = image.with_metadata().open()
@@ -137,11 +149,55 @@ class ViewSession:
     def cache_bytes(self) -> int:
         return self._cache_bytes
 
+    @property
+    def overview_cache_bytes(self) -> int:
+        """Retained plus in-progress overview arrays, separate from preview bytes."""
+        return self._overviews.nbytes
+
+    @property
+    def overview_status(self) -> str:
+        return self._overviews.status
+
+    def step_overview(self, channels: Sequence[int] = (0,)) -> OverviewProgress:
+        """Prepare at most one native chunk of an optional whole-image display cache.
+
+        Each chunk is <= max_read_pixels and <=262,144 source samples. The total
+        scan has its own overview_max_source_pixels cap. Calling this method is
+        explicit extra I/O; normal plan/sample/fit never starts a build. Callers
+        may interleave foreground work or cancel between steps. Never call from
+        the UI thread: native reads cannot be forcibly interrupted safely.
+        """
+        with self._lock:
+            self._require_image_open()
+            selected = self._select_channels(channels)
+
+            def read(channel, level, bounds):
+                pair = (channel, level)
+                if self._cached_pair is not None and pair != self._cached_pair:
+                    self._image.clear_cache()
+                self._cached_pair = pair
+                return self._image[channel].read_region(*bounds, level=level)
+
+            progress = self._overviews.step(self.info, selected, self.max_read_pixels, read)
+            if progress.published:
+                # Existing ViewSamples (including frozen selections) remain valid,
+                # but an old sparse preview must not hide a completed reduction.
+                for plan in tuple(self._cache):
+                    if plan.sampled_overview is not None:
+                        self._cache_bytes -= self._cache.pop(plan).values.nbytes
+            return progress
+
+    def cancel_overview(self) -> None:
+        """Discard unfinished work, retaining completed cache entries. No I/O."""
+        with self._lock:
+            self._overviews.cancel()
+
     def clear_cache(self) -> None:
-        """Release preview rasters, not the caller's image or its decoded cache."""
+        """Release preview/overview arrays, not the borrowed image or decoder cache."""
         with self._lock:
             self._cache.clear()
             self._cache_bytes = 0
+            self._overviews.clear()
 
     def close(self) -> None:
         """End this view and release its previews; the parent remains caller-owned."""
@@ -195,15 +251,16 @@ class ViewSession:
         count *= 3 if self.info.is_rgb else 1
         overview = None
         if count > self.max_read_pixels and allow_sampled_overview:
-            # Use the coarsest stored level for a navigational sample grid. Do
-            # not silently turn these patch observations into exact area means.
+            # Prefer a full native region at lower detail before using sparse
+            # sampling. Runtime reductions can replace the sparse plan at sample().
             level = max(self.info.levels, key=lambda item: item.scale_x * item.scale_y)
             x0 = min(level.width, max(0, floor(viewport.x / level.scale_x)))
             y0 = min(level.height, max(0, floor(viewport.y / level.scale_y)))
             x1 = min(level.width, max(0, ceil((viewport.x + viewport.width) / level.scale_x)))
             y1 = min(level.height, max(0, ceil((viewport.y + viewport.height) / level.scale_y)))
             components = len(selected) * (3 if self.info.is_rgb else 1)
-            if self.max_read_pixels >= components:
+            count = max(0, x1 - x0) * max(0, y1 - y0) * components
+            if count > self.max_read_pixels and self.max_read_pixels >= components:
                 overview = plan_sampled_overview(
                     viewport, shape=self.info.shape, level=level, rows=rows, columns=columns,
                     pixel_budget=self.max_read_pixels // components,
@@ -252,7 +309,7 @@ class ViewSession:
             # bypass budget, source, level, or channel validation.
             expected = self.plan(plan.viewport, rows=plan.sample_shape[0],
                                  columns=plan.sample_shape[1], channels=plan.channels,
-                                 allow_sampled_overview=plan.sampled_overview is not None)
+                                 allow_sampled_overview=True)
             if plan != expected:
                 raise ValueError("ReadPlan does not match this source and sampling geometry")
             if plan in self._cache:
@@ -262,10 +319,14 @@ class ViewSession:
             rows, columns = plan.sample_shape
             planes = []
             overview = plan.sampled_overview
-            for channel in plan.channels:
+            cached = (None if overview is None else
+                      self._overviews.get(self.info, plan.channels, self.max_read_pixels))
+            for position, channel in enumerate(plan.channels):
                 if x0 >= x1 or y0 >= y1:
                     shape = ((rows, columns, 3) if self.info.is_rgb else (rows, columns))
                     preview = np.full(shape, np.nan, dtype=np.float64)
+                elif cached is not None:
+                    preview = cached[position].sample(plan.viewport, rows=rows, columns=columns)
                 else:
                     pair = (channel, plan.level.index)
                     if self._cached_pair is not None and pair != self._cached_pair:
@@ -300,7 +361,7 @@ class ViewSession:
                         )
                 planes.append(preview)
             values = planes[0] if self.info.is_rgb else np.stack(planes)
-            samples = ViewSamples(values, plan, self.info.is_rgb)
+            samples = ViewSamples(values, plan, self.info.is_rgb, cached_overview=cached is not None)
             size = samples.values.nbytes
             if size <= self._budget:
                 while self._cache and self._cache_bytes + size > self._budget:

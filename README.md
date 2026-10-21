@@ -81,7 +81,7 @@ capable terminals and simple text otherwise. There is no second viewer.
 | Input | Behavior in this pass |
 |---|---|
 | OME-TIFF | Existing Omeify OMETiffReader, stored levels, and regional decoding, unchanged. |
-| Aperio SVS (`.svs`, case-insensitive) | Omeify AperioSVSReader, native RGB and supplied pyramid, regional decoding; no whole-slide RAM pyramid. |
+| Aperio SVS (`.svs`, case-insensitive) | Omeify AperioSVSReader, native RGB and supplied pyramid, regional decoding; optional bounded runtime overview cache. |
 | PNG, JPEG/JPG, WebP, BMP, TGA | Decode once; retain the base raster and an in-memory pyramid. |
 | GIF, APNG, animated WebP | Frame 0 by default, or select `--frame N`; no animation playback. |
 | ICO | View the decoder's default icon representation. |
@@ -132,7 +132,8 @@ selected as you turn pages. A new OME series resets channel selection to 0 and
 initializes its own intensity windows; RGB/intensity default density follows the
 new series unless explicitly overridden. Opening an unsupported series reports
 an error and retains the previous view. OME reads still use only Omeify, with no
-pixel scans or in-memory whole-slide pyramid construction.
+pixel scans during opening. Eligible sources can acquire a bounded display overview
+later during idle time, as described below.
 
 ### Progressive PDF detail
 
@@ -475,7 +476,7 @@ still be split by tmux; ttwhy does not implement a shell or manage tmux sessions
 |---|---|
 | Mouse wheel over the image; `+` / `-` | Zoom, anchored to the pointer for the wheel |
 | Arrow keys; left-button drag | Pan the image |
-| `r` or Home | Fit the whole image, using a labelled sampled overview when needed |
+| `r` or Home | Fit the whole image; cached overview when ready, sampled preview while preparing |
 | PageDown / `]`; PageUp / `[` | Next / previous PDF page or OME series |
 | `p`, number, Enter | Go to a PDF page (1-based) or OME series (0-based) |
 | `s`; selection toolbar | Select/copy a rectangle; see the selection controls above. |
@@ -559,7 +560,8 @@ Richer sampling can choose a finer stored pyramid level and take longer to rende
 The existing source-read budget still applies. Under the same budget, a large or
 poorly pyramidal input may need a smaller initial field in detail/shape than in
 simple. Such a view remains explicitly labeled as a bounded crop. Sampling is
-still regional, and no mode performs a whole-slide scan to improve its picture.
+still regional. Optional idle-time overview preparation scans the coarsest native
+level in bounded chunks, subject to a separate total-work cap.
 
 ### Contrast and color
 
@@ -776,7 +778,7 @@ by Omeify; an ordinary array-backed source returns a region of its RAM raster. S
 terminal sampling grid, including fractional camera positions and letterboxing.
 Raw preview means use float64 so narrow windows on uint32 data survive resampling.
 
-There are two deliberately different caches:
+There are three deliberately different caches:
 
 * The provider-owned cache, evicted through Omeify's public `clear_cache()` when
   switching channel/level pairs. ttwhy does not create a second raw tile cache or
@@ -786,6 +788,9 @@ There are two deliberately different caches:
   Richer previews take more bytes, so the same cache holds fewer of them. Detail
   and shape share a sample-grid geometry and can reuse one another's raw previews.
   The current rendered frame and its style runs are retained for cheap terminal repaint.
+* A separate **64 MiB runtime overview cache**, counting completed arrays and one
+  in-progress build together. It retains unwindowed full-coverage box reductions
+  per selected channel, evicts least-recently-used entries, and never writes files.
 
 One background display worker performs sampling and rendering. New camera requests replace
 pending older ones; an in-flight decode completes safely but its stale result is
@@ -796,42 +801,94 @@ source-loader thread. PDF refinement has at most two native worker processes;
 private-pipe reception runs off the UI thread. Sources are never closed or replaced
 under an in-flight display read.
 
-`--max-read-pixels` defaults to 4,194,304 source samples **per request**, counting
-selected channels and all RGB samples. Requests exceeding it are rejected before
-pixel reads. An OME-TIFF or externally supplied image with no useful coarse pyramid cannot
-provide a cheap, faithful overview. Initial fit then shows an explicitly labeled bounded center crop;
-zooming farther out is rejected rather than silently reading a huge image.
-`ViewSession` itself never constructs a pyramid or substitutes a sparse fake
-overview. RAM pyramids belong only to the explicit ordinary-file ingress path.
+`--max-read-pixels` defaults to 4,194,304 source samples **per foreground request**,
+counting selected channels and RGB samples. Strict library plans reject larger
+reads. Initial fit keeps the original bounded-center-crop behavior when native
+levels cannot fit. Interactive zoom-out remains available through a visibly
+labelled sampled preview or a completed runtime overview. Overview construction
+is separately budgeted extra I/O, not a loophole that claims a full native scan
+fits in one foreground request.
 
-### Whole-slide zoom-out and sampled overviews
+### Whole-slide zoom-out and cached overviews
 
-The initial view still favors ordinary, faithful area-averaged samples. If a
-large slide's smallest stored pyramid level exceeds `--max-read-pixels`, ttwhy
-starts on a **bounded center crop** rather than decoding a huge overview.
-Previously, zooming out was then blocked by that same read-budget check, so
-portrait and unusually large slides could not be seen in full.
+The initial camera is unchanged: a native area-averaged view or an explicitly
+labelled **bounded center crop**. Wheel/`-` zoom-out and **`r`/Home** can still show
+the whole image, with black padding rather than stretching or cropping it.
 
-**Interactive zoom-out now keeps going.** The mouse wheel and `-` may show the
-whole slide with empty canvas space on the sides (or above/below); **`r`/Home**
-explicitly fits the entire image. When a full native level is too expensive,
-the viewer reads up to 256 small patches spread over the visible image at its
-coarsest available level, staying within the configured source-sample budget
-across all selected channels and RGB components. It interpolates the patch means
-for a **sampled overview** and marks the status `sampled overview` (plus
-`extent-fit` if the vendor level itself lacks declared scale). Zooming closer
-returns automatically to ordinary full-coverage, area-averaged regional reads.
+After the first displayed frame, idle worker iterations may prepare a reusable
+**full-coverage overview from the coarsest native level**. Every native pixel in
+that level contributes to the appropriate box, including partial odd-size edges;
+nonfinite values contribute no weight. Float64 weighted values and finite support
+are retained before windowing, so channel contrast, gamma, pseudocolor and
+rendering-mode changes do not require rebuilding the overview. No full native
+level is materialized. Source metadata, physical calibration and GeoJSON's base
+pixel coordinate system are unchanged; unknown native geometry stays `extent-fit`.
 
-A sampled overview is for **orientation and navigation**, not cell inspection or
-measurement: small tissue structures can be missed or softened between patch
-locations. No exact full-slide average is claimed, and no whole-slide source
-scan or new TIFF pyramid is generated. The zoom and pixel-coordinate geometry
-remain continuous; source-pixel GeoJSON coordinates are not redefined. Library
-`ViewSession.plan()` stays strict by default: the sampled path is an explicit
-opt-in used by the interactive viewer. Noninteractive text snapshots keep their
-previous exact-read/bounded-crop policy.
+The worker reads one disjoint regional chunk at a time. Each chunk requests at
+most **262,144 source samples**, and never more than `--max-read-pixels`, including
+RGB components. Whole-image preparation necessarily reads more than one ordinary
+frame's budget over time. Its separate **`--overview-max-source-pixels`** limit is
+**134,217,728 samples** across the selected channel set by default. Exceeding it
+skips the automatic scan, which avoids accidentally traversing a gigantic
+single-level slide just because a terminal was opened.
 
-This sample-count budget and the preview cache size are **not a process-RSS cap**.
+**`--overview-cache-mib` defaults to 64**, separate from `--cache-mib` (32 MiB of
+small camera previews). Completed entries plus the one unfinished build share
+that cap. The reduction uses a power-of-two factor until each channel fits its
+share of the cache and at most 262,144 spatial pixels. It does not allocate the
+entire allowance up front. Weighted values plus support require 16 bytes per
+scalar output sample, or 48 per RGB pixel. Selected channels are protected from
+LRU eviction while their set is being prepared; other channel entries may be
+reused or evicted. Cache contents are session-local and released on source/series
+replacement or viewer shutdown. Nothing persists on disk.
+
+```bash
+ttwhy slide.svs                               # automatic idle-time cache preparation
+ttwhy slide.svs --overview-cache-mib 128       # larger retention allowance
+ttwhy slide.svs --overview-cache-mib 0         # disable preparation; retain sampled fallback
+ttwhy slide.svs --overview-max-source-pixels 268435456  # explicitly allow more scan I/O
+```
+
+Foreground frames take priority over further overview chunks. Preparation uses
+**the existing single display worker**, not concurrent calls into the same TIFF
+reader. Zooming/panning preempts it between chunks; idle time can resume useful
+work even after zooming in. Changing selected channels abandons an obsolete
+partial channel build when the worker next runs; changing series drops its
+session cache. Selection pauses preparation and freezes the displayed frame.
+A chunk already in flight may finish, but cannot replace a selection's artwork.
+Quitting joins the current read without starting another chunk. This is
+cooperative cancellation, not interruption of a running native codec.
+
+The status distinguishes **`building overview`**, **`cached overview`** and
+**`sampled overview`**. Until all selected channels have a complete cache entry,
+the prior <=256-patch sampled view remains available for immediate navigation.
+Completion automatically redraws an overview without moving the camera or
+resetting contrast. The sparse fallback also remains when preparation is disabled,
+scan-capped, or fails; a failure is reported and not retried on every repaint.
+When even a lower-detail native rectangle fits the read budget, ttwhy now uses
+that complete native region before considering a sampled view. Zooming back into
+an affordable detailed native region always returns to native sampling.
+
+A cached overview is a full-coverage **display reduction of that native level**,
+not recovered full-resolution detail or a quantitative measurement product.
+Arbitrary subsequent camera footprints approximate within its reduced pixels,
+as with a normal display pyramid. It cannot restore features already absent from
+the scanner's coarsest level. It does, however, avoid the sparse fallback's gaps
+between observations. Cached pixels must not be interpreted as new calibration.
+
+Library `ViewSession.plan()` remains strict by default. To explicitly prepare an
+overview, call `session.step_overview(channels)` off the UI thread until its
+`pending` result is false; `published` reports completion of a channel. Each
+call does at most one chunk of extra work. `cancel_overview()` drops an incomplete
+build, while `clear_cache()` also removes completed overviews and camera previews.
+`overview_cache_bytes` includes both finished and unfinished overview arrays.
+`sample()` may use a completed cache for an explicitly allowed sampled plan,
+reporting `ViewSamples.cached_overview=True`; the plan is unchanged and its
+`source_samples` remains the fallback's planned budget, not a count of actual
+cache-hit I/O. Noninteractive snapshots do not schedule overview construction
+and retain their prior exact-read/bounded-crop behavior.
+
+These sample-count and array-cache budgets are **not a process-RSS cap**.
 Decoder buffers, masks, area-averaging intermediates, metadata, and terminal output
 also use memory. Omeify's per-plane decoded cache targets 64 MiB, but one oversized
 source strip or tile can exceed that target. A poorly tiled source can still be slow.

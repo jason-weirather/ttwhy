@@ -171,7 +171,9 @@ class SizedOutput(DummyOutput):
 @pytest.mark.asyncio
 async def test_actual_viewer_minus_key_shows_entire_portrait_slide():
     source = GradientSlide(60_000, 10_000)
-    with RGBImage(source) as image, ViewSession(image) as session, create_pipe_input() as pipe:
+    with RGBImage(source) as image, ViewSession(
+        image, overview_cache_mib=0,  # Exercise the fallback with cache preparation disabled.
+    ) as session, create_pipe_input() as pipe:
         viewer = Viewer(session, renderer=TextRenderer(mode="blocks"))
         task = asyncio.create_task(viewer.run(input=pipe, output=SizedOutput()))
         try:
@@ -219,7 +221,9 @@ async def test_actual_viewer_minus_key_shows_entire_portrait_slide():
 @pytest.mark.asyncio
 async def test_fit_shortcut_requests_full_extent_without_changing_initial_crop():
     source = GradientSlide(60_000, 10_000)
-    with RGBImage(source) as image, ViewSession(image) as session, create_pipe_input() as pipe:
+    with RGBImage(source) as image, ViewSession(
+        image, overview_cache_mib=0,  # Exercise the fallback with cache preparation disabled.
+    ) as session, create_pipe_input() as pipe:
         viewer = Viewer(session, renderer=TextRenderer(mode="blocks"))
         task = asyncio.create_task(viewer.run(input=pipe, output=SizedOutput()))
         try:

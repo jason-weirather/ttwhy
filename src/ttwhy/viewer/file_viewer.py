@@ -6,6 +6,7 @@ from ..image_document import ImageDocument
 from ..image_input import open_image
 from ..pdf_workers import DEFAULT_PDF_CACHE_PAGES
 from ..text_renderer import TextRenderer
+from ..runtime_overview import DEFAULT_OVERVIEW_CACHE_MIB, DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS
 from ..view_session import ViewSession
 from .navigation import DocumentNavigation
 from .clipping import clip_options
@@ -16,6 +17,8 @@ async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
                     pdf_cache_pages=None, background=None, channels=(0,), window=None,
                     mode="blocks", color=True, invert=None, cell_aspect=2.0,
                     viewport=None, cache_mib=32.0, max_read_pixels=4_194_304,
+                    overview_cache_mib=DEFAULT_OVERVIEW_CACHE_MIB,
+                    overview_max_source_pixels=DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS,
                     input=None, output=None, output_text_clip=None, output_ansi_clip=None,
                     output_png_clip=None, output_geojson_clip=None, clipboard="auto",
                     clip_source="auto", clip_overwrite=True) -> None:
@@ -42,7 +45,8 @@ async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
         with (
             open_image(path, series=series, page=page, frame=frame, background=background) as image,
             ViewSession(image, name=name, cache_mib=cache_mib,
-                        max_read_pixels=max_read_pixels) as session,
+                        max_read_pixels=max_read_pixels, overview_cache_mib=overview_cache_mib,
+                        overview_max_source_pixels=overview_max_source_pixels) as session,
         ):
             renderer = TextRenderer(mode=mode, color=color,
                                     invert=session.info.is_rgb if invert is None else invert,
@@ -56,7 +60,8 @@ async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
             document, initial,
             cache_pages=DEFAULT_PDF_CACHE_PAGES if pdf_cache_pages is None else pdf_cache_pages,
             cache_mib=cache_mib, max_read_pixels=max_read_pixels, window=window,
-            auto_invert=invert is None,
+            auto_invert=invert is None, overview_cache_mib=overview_cache_mib,
+            overview_max_source_pixels=overview_max_source_pixels,
         )
     except BaseException:
         initial.release()

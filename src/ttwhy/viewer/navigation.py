@@ -12,6 +12,7 @@ from ..image_document import DocumentItem, ImageDocument
 from ..pdf_workers import DEFAULT_PDF_CACHE_PAGES, PdfWorkers
 from ..view_info import ReadBudgetExceeded
 from ..view_session import ViewSession
+from ..runtime_overview import DEFAULT_OVERVIEW_CACHE_MIB, DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS
 from ..viewport import Viewport
 
 if TYPE_CHECKING:
@@ -29,10 +30,14 @@ class DocumentNavigation:
 
     def __init__(self, document: ImageDocument, initial: DocumentItem, *,
                  cache_pages: int = DEFAULT_PDF_CACHE_PAGES, cache_mib: float = 32,
-                 max_read_pixels: int = 4_194_304, window=None, auto_invert: bool = False) -> None:
+                 max_read_pixels: int = 4_194_304, window=None, auto_invert: bool = False,
+                 overview_cache_mib: float = DEFAULT_OVERVIEW_CACHE_MIB,
+                 overview_max_source_pixels: int = DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS) -> None:
         self.document = document
         self.cache_pages = positive_integer(cache_pages, "pdf_cache_pages")
         self.cache_mib, self.max_read_pixels = cache_mib, max_read_pixels
+        self.overview_cache_mib = overview_cache_mib
+        self.overview_max_source_pixels = overview_max_source_pixels
         self.default_window, self.auto_invert = window, auto_invert
         self.active = initial
         self.session = self._session(initial)
@@ -57,7 +62,9 @@ class DocumentNavigation:
 
     def _session(self, item: DocumentItem) -> ViewSession:
         return ViewSession(item.image, name=self.document.item_name(item),
-                           cache_mib=self.cache_mib, max_read_pixels=self.max_read_pixels)
+                           cache_mib=self.cache_mib, max_read_pixels=self.max_read_pixels,
+                           overview_cache_mib=self.overview_cache_mib,
+                           overview_max_source_pixels=self.overview_max_source_pixels)
 
     @property
     def cache_bytes(self) -> int:

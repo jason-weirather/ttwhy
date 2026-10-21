@@ -16,6 +16,7 @@ from .terminal_capabilities import available_color_depth, resolve_auto_mode
 from .text_renderer import RENDER_MODES, TextRenderer
 from .text_clip import CLIPBOARD_MODES, CLIP_SOURCES
 from .view_session import ViewSession
+from .runtime_overview import DEFAULT_OVERVIEW_CACHE_MIB, DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS
 from .viewport import Viewport
 
 
@@ -76,6 +77,14 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
               help="Maximum retained resampled-preview cache size; decoder storage is separate.")
 @click.option("--max-read-pixels", type=click.IntRange(min=1), default=4194304,
               help="Maximum source samples per request, counting selected channels/RGB samples.")
+@click.option("--overview-cache-mib", type=click.FloatRange(min=0),
+              default=DEFAULT_OVERVIEW_CACHE_MIB,
+              help="RAM for completed/in-progress full-coverage display overviews; 0 disables. "
+                   "Separate from the preview cache; interactive only.")
+@click.option("--overview-max-source-pixels", type=click.IntRange(min=0),
+              default=DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS,
+              help="Total native samples allowed in an overview scan, including channels/RGB. "
+                   "Separate from each chunk's --max-read-pixels limit; 0 disables.")
 @click.option("--snapshot", is_flag=True, help="Render one text frame without starting the viewer.")
 @click.option("--columns", type=click.IntRange(min=1), default=120,
               help="Snapshot width in characters.")
@@ -104,7 +113,8 @@ def main(
     background: str | None, channels: tuple[int, ...], lower: float | None,
     upper: float | None, mode: str, color: bool | None, invert: bool | None,
     cell_aspect: float, region: tuple[float, ...] | None, cache_mib: float,
-    max_read_pixels: int, snapshot: bool, columns: int, rows: int, ansi: bool,
+    max_read_pixels: int, overview_cache_mib: float, overview_max_source_pixels: int,
+    snapshot: bool, columns: int, rows: int, ansi: bool,
     output_path: Path | None, no_overwrite: bool,
     output_text_clip: Path | None, output_ansi_clip: Path | None,
     output_png_clip: Path | None, output_geojson_clip: Path | None,
@@ -179,7 +189,9 @@ def main(
                 pdf_max_dpi=pdf_max_dpi, pdf_cache_pages=pdf_cache_pages, background=matte,
                 channels=channels, window=window, mode=mode, color=use_color, invert=invert,
                 cell_aspect=cell_aspect, viewport=viewport, cache_mib=cache_mib,
-                max_read_pixels=max_read_pixels, output_text_clip=output_text_clip,
+                max_read_pixels=max_read_pixels, overview_cache_mib=overview_cache_mib,
+                overview_max_source_pixels=overview_max_source_pixels,
+                output_text_clip=output_text_clip,
                 output_ansi_clip=output_ansi_clip, output_png_clip=output_png_clip,
                 output_geojson_clip=output_geojson_clip, clipboard=clipboard or "auto",
                 clip_source=clip_source or "auto", clip_overwrite=not no_overwrite,

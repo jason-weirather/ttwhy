@@ -210,6 +210,13 @@ class Viewer:
                 self.navigation.install_pending()
             request, self._pending = self._pending, None
             if request is None:
+                try:
+                    await self._step_overview()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:
+                    self.application.exit(exception=error)
+                    return
                 continue
             try:
                 result = await asyncio.get_running_loop().run_in_executor(
@@ -235,6 +242,35 @@ class Viewer:
             self.application.invalidate()
             if self.navigation is not None:
                 self.navigation.frame_displayed()
+            # Give foreground requests priority. Idle iterations prepare only one
+            # overview chunk each, off the UI thread and on this same executor.
+            self._wake.set()
+
+    async def _step_overview(self) -> None:
+        if self.samples is None or self.busy:
+            return
+        if self.navigation is not None and self.navigation.target != self.navigation.active.index:
+            return
+        # Optional capability also keeps lightweight embedded session adapters usable.
+        step = getattr(self.session, "step_overview", None)
+        if step is None:
+            return
+        session = self.session
+        channels = tuple(self.selected_channels)
+        progress = await asyncio.get_running_loop().run_in_executor(self._executor, step, channels)
+        self.application.invalidate()
+        # Selection can begin while a chunk is decoding. Cache publication must
+        # never replace that frozen frame or trigger a competing request.
+        if self.selecting or session is not self.session:
+            return
+        if (progress.published and channels == tuple(self.selected_channels)
+                and self.samples.plan.sampled_overview is not None
+                and self._pending is None):
+            self.request_frame()
+        elif progress.pending:
+            self._wake.set()
+        # Explicitly yield even for a very cheap in-memory provider.
+        await asyncio.sleep(0)
 
     def request_frame(self) -> None:
         if self.selecting or self.viewport is None or not all(self.canvas_size) or self._wake is None:
@@ -301,7 +337,7 @@ class Viewer:
             columns=self.canvas_size[0], rows=self.canvas_size[1], renderer=self.renderer,
             channels=self.selected_channels,
         )
-        self.message = ("Read budget: bounded center crop; no usable overview at this size."
+        self.message = ("Read budget: bounded center crop; zoom out / r for overview."
                         if limited else "Fit slide. Contrast stays fixed until a / l / u / g.")
         self.viewport = viewport
         self.request_frame()
@@ -317,7 +353,7 @@ class Viewer:
         view = Viewport.fit(self.session.info.shape, columns=self.canvas_size[0],
                             rows=self.canvas_size[1], cell_aspect=self.renderer.cell_aspect,
                             pixel_aspect=self.session.info.pixel_aspect)
-        self.message = "Fit slide; sampled overview if the native pyramid exceeds the read budget."
+        self.message = "Fit slide; cached overview when ready, sampled preview while preparing."
         self._set_viewport(view)
 
     def zoom(self, factor: float, *, anchor: Sequence[float] = (0.5, 0.5)) -> None:
@@ -554,7 +590,11 @@ class Viewer:
         if self.samples is not None and self.samples.plan.level.approximate:
             level += " extent-fit"
         if self.samples is not None and self.samples.plan.sampled_overview is not None:
-            level += " sampled overview"
+            level += (" cached overview" if getattr(self.samples, "cached_overview", False)
+                      else " sampled overview")
+        overview_status = getattr(self.session, "overview_status", "")
+        if overview_status and overview_status != "overview cached":
+            level += " | " + safe_label(overview_status)
         size = self.session.info.pixel_size
         calibration = "uncalibrated" if size is None else f"{size[0]:g} x {size[1]:g} {size[2]}/px"
         mode_label = (self.mode_navigation.label if self.mode_navigation.family == "ascii"

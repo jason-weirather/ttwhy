@@ -683,3 +683,66 @@ Broader selection test runs exposed outdated baseline expectations for retired
 The real `coolname` distribution and TIFF JPEG codecs were unavailable in this
 environment; an explicitly out-of-tree test double was used for non-vocabulary
 selection tests only, not bundled with the patch.
+
+## Incremental full-coverage runtime overview cache (October 2026)
+
+This candidate targets the supplied `b37dcef043b45889d907972c1c28c4d764bf5060`
+snapshot. All 66 baseline files were reconstructed with byte sizes and final
+newline flags verified. No dependency, Python minimum, package-version, source
+calibration, GeoJSON geometry, or image-reader change is introduced.
+
+**Executed:** 374 tests passed in one final selected regression run, including
+44 new runtime-overview cases and a real POSIX pseudo-terminal SVS workflow.
+The new PTY test opens an independently generated Deflate Aperio fixture, fits
+the whole slide, observes `cached overview`, and verifies clean exit and restored
+alternate-screen, mouse and cursor state. Python 3.13 emits one forkpty
+DeprecationWarning from that test harness; it is not a viewer failure.
+
+Numerical cases compare all native pixels against an independent per-pixel
+weighted oracle, including RGB/scalar, odd and one-pixel-wide shapes, nonfinite
+samples, fractional edge support, and reduction blocks larger than a read chunk.
+They assert exactly one visit per native pixel and per-chunk sample limits.
+Additional cases cover uint32 precision, a corner feature missed by sparse
+sampling but included in the integrated cache, native-detail preference,
+multichannel LRU retention/eviction, combined finished/unfinished byte limits,
+scan limits and disabled preparation, incomplete-build cancellation, source
+close/reopen invalidation, and no automatic retry after a deliberate read error.
+
+Actual Omeify SVS and OME-TIFF integrations prohibit whole-page/whole-series
+materialization while preparing a cache. Unknown-scale geometry keeps the
+extent-fit marker; declared anisotropic/odd-size geometry stays unchanged.
+Interactive tests exercise same-camera/same-contrast refinement, frozen-frame
+selection, foreground preemption, source changes while a chunk is in flight,
+shutdown with an in-flight chunk, budget propagation through CLI/navigation, and
+unchanged noninteractive snapshot policy. The previous sampled-overview viewer
+tests now explicitly disable preparation to test that fallback deterministically.
+
+Final regression command:
+
+```bash
+python -m pytest -q --ignore=tests/test_pty.py --ignore=tests/test_clipping.py \
+  --ignore=tests/test_multiselection.py --ignore=tests/test_geojson_clip.py
+```
+
+This includes the new PTY test in `test_runtime_overview.py`, but not the separate
+historical PTY module. An attempted combined historical PTY run reached the
+execution time limit after nine completed cases, without a completed summary;
+it is not counted as a passing full run. The three omitted selection/export
+groups require the unavailable real coolname dependency and/or contain known
+historical shortcut expectations. No replacement naming package was used for
+this candidate's tests. The full repository suite is not claimed to pass.
+
+Environment: Linux, Python 3.13.5, actual Omeify 0.22.0 source reconstructed from
+the supplied `97c97ef` snapshot, NumPy, SciPy, tifffile, Pillow, PDFium and
+prompt_toolkit. This tests the real source dependency, not its separately
+published wheel. Ruff could not be installed in this environment. Python 3.11
+syntax parsing, whitespace checks, and application of the patch to a separate
+clean baseline reconstruction are checked separately.
+
+No production scanner JPEG/JPEG 2000 SVS, high-latency filesystem, macOS/Windows
+terminal, live SSH/tmux transport, or process-RSS benchmark was exercised. Native
+decoder tiles/strips and temporary reduction/resampling buffers are outside the
+array-cache cap. Cancellation occurs between regional chunks; the current native
+read is joined, not forcibly killed. A completed cache is full-coverage relative
+to its chosen native level, not a guarantee of exact full-resolution statistics
+or recovery of features already lost by the scanner's coarse level.
