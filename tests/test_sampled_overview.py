@@ -185,11 +185,13 @@ async def test_actual_viewer_minus_key_shows_entire_portrait_slide():
                 assert time.monotonic() - start < 10
                 await asyncio.sleep(.03)
             initial = viewer.viewport
-            assert initial.height < session.info.shape[0]
-            pipe.send_text("-" * 7)
+            assert initial.height == session.info.shape[0]
+            assert viewer.samples.plan.sampled_overview is not None
+            # The opening view is already whole-image; '-' can zoom out farther.
+            pipe.send_text("-" * 2)
             start = time.monotonic()
             while (viewer.busy or viewer.displayed_generation != viewer.generation
-                   or viewer.viewport.y > 0):
+                   or viewer.viewport.height <= initial.height):
                 if task.done():
                     await task
                     raise AssertionError("Zoom-out crashed the viewer")
@@ -203,7 +205,7 @@ async def test_actual_viewer_minus_key_shows_entire_portrait_slide():
             assert "sampled overview" in viewer._status()
             assert viewer.frame.shape == (26, 68)
             # Zooming back in recovers the ordinary faithful regional path.
-            pipe.send_text("+" * 7)
+            pipe.send_text("+" * 10)
             start = time.monotonic()
             while (viewer.busy or viewer.displayed_generation != viewer.generation
                    or viewer.samples.plan.sampled_overview is not None):
@@ -219,7 +221,7 @@ async def test_actual_viewer_minus_key_shows_entire_portrait_slide():
 
 
 @pytest.mark.asyncio
-async def test_fit_shortcut_requests_full_extent_without_changing_initial_crop():
+async def test_fit_shortcut_restores_full_extent_after_zoom_in():
     source = GradientSlide(60_000, 10_000)
     with RGBImage(source) as image, ViewSession(
         image, overview_cache_mib=0,  # Exercise the fallback with cache preparation disabled.
@@ -234,7 +236,18 @@ async def test_fit_shortcut_requests_full_extent_without_changing_initial_crop()
                     raise AssertionError("Viewer closed before initial display")
                 assert time.monotonic() - start < 10
                 await asyncio.sleep(.03)
-            assert viewer.viewport.height < 60_000
+            assert viewer.viewport.y <= 0
+            assert viewer.viewport.y + viewer.viewport.height >= 60_000
+            assert viewer.samples.plan.sampled_overview is not None
+            pipe.send_text("+")
+            start = time.monotonic()
+            while (viewer.busy or viewer.displayed_generation != viewer.generation
+                   or viewer.viewport.height >= 60_000):
+                if task.done():
+                    await task
+                    raise AssertionError("Zoom-in crashed the viewer")
+                assert time.monotonic() - start < 12
+                await asyncio.sleep(.04)
             pipe.send_text("r")
             start = time.monotonic()
             while (viewer.busy or viewer.displayed_generation != viewer.generation

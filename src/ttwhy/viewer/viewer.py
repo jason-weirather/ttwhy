@@ -60,8 +60,8 @@ class Viewer:
         startup_overview_seconds: float = DEFAULT_STARTUP_OVERVIEW_SECONDS,
     ) -> None:
         self.startup_overview_seconds = validate_startup_seconds(startup_overview_seconds)
-        # Quick-cache candidate belongs to exactly one initial camera generation.
-        # User input or document navigation supersedes it without a surprise recenter.
+        # Quick-cache work belongs to exactly one initial camera generation.
+        # The camera is already whole-image: late work must never recenter it.
         self._startup_target: Viewport | None = None
         self._startup_generation: int | None = None
         self._startup_session: ViewSession | None = None
@@ -261,11 +261,11 @@ class Viewer:
             self._wake.set()
 
     async def _startup_quick_fit(self, request: FrameRequest) -> FrameRequest:
-        """Try a short chunked reduction before the first frame, without blocking UI.
+        """Try a short reduction before the first whole-image frame.
 
-        A later zoom/channel/series command cancels the decision between chunks.
-        A slow native TIFF read may outlast the nominal deadline; it must finish
-        before that source is used again or closed.
+        If unfinished, the full-image camera uses a sampled preview immediately.
+        A later zoom/channel/series command preempts work between chunks. Native
+        TIFF reads cannot be safely interrupted during a codec call.
         """
         target, session = self._startup_target, self._startup_session
         self._startup_target = self._startup_generation = self._startup_session = None
@@ -284,10 +284,10 @@ class Viewer:
         if (request.generation == self.generation and not self.selecting
                 and session is self.session and self._pending is None
                 and session.overview_ready(request.channels)):
-            self.viewport = target.centered_within(session.info.shape)
             self.message = "Fit whole slide using a cached overview."
             self.application.invalidate()
-            return replace(request, viewport=self.viewport)
+        # The viewport was fitted before preparation began. Finishing a cache
+        # changes its samples, never the camera or an outstanding frame request.
         return request
 
     async def _step_overview(self) -> None:
@@ -379,18 +379,16 @@ class Viewer:
         full, native = startup_fit(self.session, self.renderer,
                                    columns=self.canvas_size[0], rows=self.canvas_size[1],
                                    channels=self.selected_channels)
+        # Always open on the whole specimen. Native pixels take priority; an
+        # unfinished/unaffordable reduction falls back to the same bounded,
+        # explicitly labelled sampled overview already used by --snapshot.
+        # Do not call session.fit() here: that strict library helper zooms into
+        # a center crop when a large image lacks a sufficiently coarse pyramid.
+        self.viewport = full
         if native or self.session.overview_ready(self.selected_channels):
-            self.viewport = full
             self.message = "Fit whole slide. Contrast stays fixed until a / l / u / g."
         else:
-            # Slow/giant sources retain the previous responsive bounded-crop
-            # opening. A quick eligible cache may replace that first camera
-            # *before* its initial frame, never after the user starts navigating.
-            self.viewport, limited = self.session.fit(
-                columns=self.canvas_size[0], rows=self.canvas_size[1], renderer=self.renderer,
-                channels=self.selected_channels)
-            self.message = ("Read budget: bounded center crop; zoom out / r for overview."
-                            if limited else "Fit slide. Contrast stays fixed until a / l / u / g.")
+            self.message = "Fit whole slide; sampled overview until a cached reduction is ready."
             if (self.startup_overview_seconds > 0 and
                     self.session.quick_overview_eligible(self.selected_channels)):
                 self._startup_target = full
@@ -402,8 +400,8 @@ class Viewer:
     def fit_full(self) -> None:
         """Fit the entire image, accepting a clearly labelled sampled overview if needed.
 
-        Opening a large slide still prefers the original faithful bounded crop;
-        Home/r is an explicit request to see the complete slide extent.
+        Initial opening already fits the whole image; Home/r restores that view
+        after zooming or panning, using a sampled preview if necessary.
         """
         if self.selecting or not all(self.canvas_size):
             return

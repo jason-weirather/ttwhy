@@ -9,7 +9,7 @@ from click.testing import CliRunner
 from omeify import MultichannelImage, RGBImage
 from prompt_toolkit.input import create_pipe_input
 
-from ttwhy import TextRenderer, ViewSession
+from ttwhy import TextRenderer, Viewport, ViewSession
 from ttwhy.cli import main
 from ttwhy.startup_overview import (MAX_STARTUP_OVERVIEW_SOURCE_SAMPLES,
                                     prepare_fast_overview, startup_fit)
@@ -84,7 +84,7 @@ async def test_quick_reduction_finishes_before_initial_frame():
 
 
 @pytest.mark.asyncio
-async def test_small_deadline_keeps_initial_center_crop(monkeypatch):
+async def test_small_deadline_still_opens_whole_slide_with_sampled_preview(monkeypatch):
     source = GradientSlide(3200, 1600)
     with RGBImage(source) as image, ViewSession(
         image, max_read_pixels=500,
@@ -104,8 +104,9 @@ async def test_small_deadline_keeps_initial_center_crop(monkeypatch):
         try:
             await displayed(viewer, task)
             assert calls
-            assert viewer.viewport.height < 3200
-            assert viewer.samples.plan.sampled_overview is None
+            assert viewer.viewport == Viewport.fit(session.info.shape, columns=68, rows=26)
+            assert viewer.samples.plan.sampled_overview is not None
+            assert not viewer.samples.cached_overview
             # The unfinished build is permitted to resume during later idle time.
             assert viewer.displayed_generation == viewer.generation
         finally:
@@ -132,10 +133,59 @@ async def test_very_large_scan_is_not_attempted_during_open(monkeypatch):
         task = asyncio.create_task(viewer.run(input=pipe, output=SizedOutput()))
         try:
             await displayed(viewer, task)
-            assert viewer.viewport.height < 64_000
+            assert viewer.viewport == Viewport.fit(session.info.shape, columns=68, rows=26)
+            assert viewer.samples.plan.sampled_overview is not None
+            assert not viewer.samples.cached_overview
             assert all(observed)  # Idle scheduler runs only after the first frame.
             # Normal idle preparation may already have started after first paint;
             # it is not part of the quick pre-first-frame decision.
+        finally:
+            pipe.send_bytes(b"\x11")
+            await asyncio.wait_for(task, 8)
+
+
+@pytest.mark.asyncio
+async def test_default_read_budget_never_forces_a_center_crop():
+    """A large slide with a real pyramid can still exceed 4M RGB samples."""
+    source = GradientSlide(60_000, 10_000)
+    with RGBImage(source) as image, ViewSession(
+        image, overview_cache_mib=0,  # Force the bounded sampled preview, not a new scan.
+    ) as session, create_pipe_input() as pipe:
+        assert session.max_read_pixels == 4_194_304
+        # Coarsest level alone is ~7 million RGB samples.
+        assert source.shapes[-1][0] * source.shapes[-1][1] * 3 > session.max_read_pixels
+        viewer = Viewer(session, renderer=TextRenderer(mode="blocks"))
+        task = asyncio.create_task(viewer.run(input=pipe, output=SizedOutput()))
+        try:
+            await displayed(viewer, task)
+            full = Viewport.fit(session.info.shape, columns=68, rows=26)
+            assert viewer.viewport == full
+            assert viewer.samples.plan.viewport == full
+            assert viewer.samples.plan.sampled_overview is not None
+            assert "sampled overview" in viewer._status()
+            assert "center crop" not in viewer.message
+            assert source.reads  # The bounded overview was actually sampled.
+            assert sum((y1-y0)*(x1-x0)*3 for _,y0,y1,x0,x1,_ in source.reads) \
+                <= session.max_read_pixels
+        finally:
+            pipe.send_bytes(b"\x11")
+            await asyncio.wait_for(task, 8)
+
+
+@pytest.mark.asyncio
+async def test_explicit_initial_region_is_preserved_when_whole_fit_is_default():
+    source = GradientSlide(3200, 1600)
+    region = Viewport(100, 200, 200, 150)
+    with RGBImage(source) as image, ViewSession(
+        image, max_read_pixels=50_000,
+    ) as session, create_pipe_input() as pipe:
+        viewer = Viewer(session, viewport=region, renderer=TextRenderer(mode="blocks"))
+        task = asyncio.create_task(viewer.run(input=pipe, output=SizedOutput()))
+        try:
+            await displayed(viewer, task)
+            assert viewer.viewport == region
+            assert viewer.samples.plan.viewport == region
+            assert viewer.samples.plan.sampled_overview is None
         finally:
             pipe.send_bytes(b"\x11")
             await asyncio.wait_for(task, 8)
@@ -225,6 +275,38 @@ def test_real_svs_cli_snapshot_shows_all_pixels_without_crop(tmp_path):
     assert "Cached full-coverage overview" in rendered.output
     assert "\x1b[" in rendered.output
     assert "bounded center crop" not in rendered.output
+
+def test_real_svs_terminal_opens_full_sampled_view_without_a_fit_key(tmp_path):
+    """Exercise actual CLI terminal startup, not only the internal fit helper."""
+    import os
+    import sys
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX pseudo-terminal test")
+    pexpect = pytest.importorskip("pexpect")
+    from test_svs import synthetic_svs
+
+    path = tmp_path / "pyramid.svs"
+    synthetic_svs(path)
+    env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
+    env.pop("NO_COLOR", None)
+    env.pop("PROMPT_TOOLKIT_COLOR_DEPTH", None)
+    child = pexpect.spawn(
+        sys.executable,
+        ["-m", "ttwhy", str(path), "--max-read-pixels", "96",
+         "--overview-cache-mib", "0", "--startup-overview-seconds", "0"],
+        dimensions=(30, 120), encoding="utf-8", env=env, timeout=15,
+    )
+    try:
+        # Without the fix, the initial bounded crop has no sampled-overview
+        # marker until the user explicitly presses r or zooms out.
+        child.expect("sampled overview")
+        child.send("q")
+        child.expect(pexpect.EOF)
+    finally:
+        child.close(force=True)
+    assert child.exitstatus == 0
+
 
 @pytest.mark.asyncio
 async def test_user_zoom_preempts_quick_start_without_late_recenter(monkeypatch):

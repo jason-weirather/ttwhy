@@ -362,7 +362,8 @@ async def test_foreground_preempts_build_and_quit_joins_only_one_chunk(monkeypat
             release.set()
             await wait_for(lambda: not viewer.busy
                            and viewer.displayed_generation == viewer.generation, task)
-            assert viewer.samples.plan.sampled_overview is None
+            assert viewer.samples.plan.viewport == viewer.viewport
+            assert viewer.viewport.height < 3200  # The user's zoom took effect.
             pipe.send_bytes(b"\x11")
             await asyncio.wait_for(task, 10)
         finally:

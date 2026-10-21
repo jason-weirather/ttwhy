@@ -559,11 +559,12 @@ claim of an optimal reconstruction. Ordered patterns are screen-grid anchored;
 there is no motion registration or guarantee against shimmer during panning.
 
 Richer sampling can choose a finer stored pyramid level and take longer to render.
-The existing source-read budget still applies. Under the same budget, a large or
-poorly pyramidal input may need a smaller initial field in detail/shape than in
-simple. Such a view remains explicitly labeled as a bounded crop. Sampling is
-still regional. Optional idle-time overview preparation scans the coarsest native
-level in bounded chunks, subject to a separate total-work cap.
+The existing source-read budget still applies. If a large or poorly pyramidal
+input cannot supply a complete native overview within that budget, interactive
+opening uses a labelled sampled overview, not a center crop. Zooming into an
+affordable region returns to native regional sampling. Optional idle-time overview
+preparation scans the coarsest native level in bounded chunks, subject to a
+separate total-work cap.
 
 ### Contrast and color
 
@@ -808,21 +809,22 @@ under an in-flight display read.
 
 `--max-read-pixels` defaults to 4,194,304 source samples **per foreground request**,
 counting selected channels and RGB samples. Strict library plans reject larger
-reads. Initial fit keeps the original bounded-center-crop behavior when native
-levels cannot fit. Interactive zoom-out remains available through a visibly
-labelled sampled preview or a completed runtime overview. Overview construction
-is separately budgeted extra I/O, not a loophole that claims a full native scan
-fits in one foreground request.
+reads, and the explicit library `ViewSession.fit()` retains its strict bounded-crop
+contract. The **interactive viewer instead always opens with a whole-image camera**:
+using native pixels, a completed runtime overview, or the labelled sampled
+preview as necessary. Overview construction is separately budgeted extra I/O,
+not a loophole that claims a full native scan fits in one foreground request.
 
 ### Whole-slide zoom-out and cached overviews
 
-The initial camera now **fits the whole image** when a native stored level fits
-the source-read budget. If not, ttwhy attempts a small, complete cached reduction
-for up to **two seconds** before its first frame, without freezing the terminal UI.
-If preparation cannot finish promptly, opening retains a bounded center crop and
-the idle-time builder continues as before. Wheel/`-` zoom-out and **`r`/Home**
-can always show the whole image with black padding instead of stretching it.
-User-specified `--region` is never replaced by an automatic fit.
+The initial interactive camera now **always fits the entire image**, as snapshots
+already do. Native pyramid reads take priority when affordable. Otherwise ttwhy
+attempts a full-coverage cached reduction for up to **two seconds** before the
+first frame, without blocking the terminal event loop. If it does not finish,
+the first frame uses the labelled bounded sampled overview rather than a center
+crop; the idle-time builder may improve that same camera later. Wheel/`-`
+zooms out farther, and **`r`/Home** restores the whole-image fit. Blank margins
+preserve the image aspect ratio. User-specified `--region` is never replaced.
 
 After the first displayed frame, idle worker iterations may prepare a reusable
 **full-coverage overview from the coarsest native level**. Every native pixel in

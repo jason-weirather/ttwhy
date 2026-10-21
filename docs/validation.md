@@ -782,3 +782,34 @@ The entire historical suite, production JPEG SVS, remote/slow network
 filesystems and native macOS terminal behavior remain separate validation
 requirements. Native codec calls cannot be forcibly timed out and RAM budgets
 do not include third-party decoder caches or temporary codec scratch.
+
+## Whole-slide initial camera in the interactive viewer (October 21, 2026)
+
+This patch targets the supplied `37c5c1a31c91cf99b2c734a0cf93f679f83d419d`
+snapshot. The previous quick-startup change made **snapshots** cover the whole
+image, but the interactive `Viewer.fit()` still called strict `ViewSession.fit()`
+when a native overview was over budget and a complete runtime reduction was not
+ready. That helper intentionally zooms into a bounded center crop. A tall SVS
+can therefore open severely zoomed in even with the normal 4,194,304-sample
+foreground budget when its coarsest stored level contains more samples.
+
+The interactive **initial camera now always uses `Viewport.fit()`**. If native
+regional sampling is inexpensive it is used unchanged. If a quick full-coverage
+runtime reduction finishes it is reused. Otherwise the first frame displays
+the same visibly labelled, read-budgeted *sampled overview* used by snapshots.
+Idle caching may refine the samples without changing the camera. No entire
+native level is materialized. `--region` still selects its exact requested
+viewport. The public library `ViewSession.fit()` remains a deliberately strict
+bounded-crop operation; the viewer no longer uses it for automatic opening.
+
+**Executed tests:** 388 selected regression cases passed with one warning; one
+additional actual POSIX pseudo-terminal case passed independently with one
+Python 3.13 `forkpty` deprecation warning. The terminal test opens a real
+synthetic Aperio SVS via the default CLI without pressing `r` and observes a
+sampled full-image first frame. Other regression tests check native affordable
+fits, fast cached starts, a tiny startup deadline, startup work caps, the normal
+4-million-sample budget on a large procedural portrait slide, an explicit
+initial region, zoom and Home/r restoration, and cache/foreground preemption.
+The combined run reached its execution time limit after nearly all cases and
+is **not** reported as a separate passing run. Actual native macOS terminal,
+scanner JPEG/JPEG 2000 SVS, and high-latency storage still require field tests.

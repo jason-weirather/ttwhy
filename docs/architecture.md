@@ -75,12 +75,13 @@ ViewSamples. Strict library plans and PDF source-upgrade fidelity checks do not
 silently opt into these display reductions. Source geometry is never rewritten.
 
 The render pump services foreground requests before another overview chunk. A
-shared, metadata-only startup policy chooses immediate whole-slide native fit
-when affordable. Otherwise, for small eligible coarsest levels, the render pump
-may attempt up to two seconds of chunked work before the first frame. The normal
-bounded center crop remains the first frame if the cache does not complete. User
-interaction and navigation invalidate the startup generation, preventing a late
-unexpected camera recenter. After the first frame, ordinary idle preparation
+shared, metadata-only startup policy always selects the whole-image camera.
+Native levels are used when affordable; otherwise, for eligible coarsest levels,
+the render pump may attempt up to two seconds of chunked work before the first
+frame. If the cache does not complete, that camera displays the labelled sampled
+overview, not a center crop. User interaction and navigation invalidate the
+startup generation, preventing late preparation from moving the camera. After
+the first frame, ordinary idle preparation
 resumes, yielding between chunks, with no second source-reader thread. Selection pauses further
 steps and guards against frame replacement after an in-flight step. Navigation
 installs sources only after the current worker operation finishes, then releases
