@@ -1,9 +1,10 @@
 """Bounded quick whole-image fit policy shared by the viewer and text snapshots.
 
-A source's declared pyramid can often fit immediately. Otherwise a small
-full-coverage runtime reduction is worth a short attempt; big/sluggish scans
-must not become mandatory startup work. Timeouts are cooperative between TIFF
-region reads, since a native decoder call cannot be interrupted safely.
+A source's declared pyramid can often fit immediately. Otherwise a bounded
+full-coverage reduction gets the caller's requested time budget before the
+first image frame. The session's configured scan and cache limits protect huge
+sources; timeouts are cooperative between TIFF region reads, since a native
+decoder call cannot be interrupted safely.
 """
 
 from math import isfinite
@@ -12,11 +13,6 @@ from time import monotonic
 from .viewport import Viewport
 
 DEFAULT_STARTUP_OVERVIEW_SECONDS = 2.0
-# Conservative metadata preflight: do not start scanning a giant native level
-# just because the selected output fits in a few terminal cells.
-MAX_STARTUP_OVERVIEW_SOURCE_SAMPLES = 8_388_608
-
-
 def validate_startup_seconds(seconds: float) -> float:
     if isinstance(seconds, bool) or not isfinite(seconds) or seconds < 0:
         raise ValueError("startup_overview_seconds must be finite and nonnegative")
@@ -37,7 +33,7 @@ def startup_fit(session, renderer, *, columns: int, rows: int, channels):
 def prepare_fast_overview(session, channels, *, seconds: float) -> bool:
     """Synchronous snapshot preparation, one region per deadline check.
 
-    The scan is eligible only within the metadata/byte caps. If incomplete,
+    The scan is eligible within the configured total-work and RAM caps. If incomplete,
     retained partial state can be resumed by a subsequent caller; no incomplete
     image is ever published. One native read may overrun the deadline.
     """

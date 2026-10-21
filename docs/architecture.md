@@ -76,10 +76,12 @@ silently opt into these display reductions. Source geometry is never rewritten.
 
 The render pump services foreground requests before another overview chunk. A
 shared, metadata-only startup policy always selects the whole-image camera.
-Native levels are used when affordable; otherwise, for eligible coarsest levels,
-the render pump may attempt up to two seconds of chunked work before the first
-frame. If the cache does not complete, that camera displays the labelled sampled
-overview, not a center crop. User interaction and navigation invalidate the
+Native levels are used when affordable; otherwise, for sources within the
+configured overview scan and cache limits, the render pump may attempt up to
+two seconds of chunked work before the first image frame. There is no separate
+fixed sample-count gate at startup. No sparse image is drawn during the timed
+attempt: a completed cache becomes the first image, otherwise the camera
+displays the labelled sampled overview, not a center crop. User interaction and navigation invalidate the
 startup generation, preventing late preparation from moving the camera. After
 the first frame, ordinary idle preparation
 resumes, yielding between chunks, with no second source-reader thread. Selection pauses further

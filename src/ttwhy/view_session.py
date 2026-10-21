@@ -166,16 +166,17 @@ class ViewSession:
             return self._overviews.get(self.info, selected, self.max_read_pixels) is not None
 
     def quick_overview_eligible(self, channels: Sequence[int] = (0,)) -> bool:
-        """Metadata-only estimate for a short startup scan (not a time promise)."""
-        from .startup_overview import MAX_STARTUP_OVERVIEW_SOURCE_SAMPLES
+        """Whether a complete startup scan fits the configured work/RAM limits.
 
+        Its *duration* is governed by startup_overview_seconds, not another fixed
+        source-size cutoff. A fast, moderately large coarse level should get its
+        chance to finish before the first frame instead of always flashing sparse.
+        """
         with self._lock:
             self._require_image_open()
             selected = self._select_channels(channels)
             spec, _ = self._overviews.spec(self.info, selected, self.max_read_pixels)
-            return (spec is not None and
-                    spec.level.height * spec.level.width * spec.components * len(selected)
-                    <= MAX_STARTUP_OVERVIEW_SOURCE_SAMPLES)
+            return spec is not None
 
     def step_overview(self, channels: Sequence[int] = (0,)) -> OverviewProgress:
         """Prepare at most one native chunk of an optional whole-image display cache.

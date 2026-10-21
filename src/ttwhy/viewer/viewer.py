@@ -388,11 +388,16 @@ class Viewer:
         if native or self.session.overview_ready(self.selected_channels):
             self.message = "Fit whole slide. Contrast stays fixed until a / l / u / g."
         else:
-            self.message = "Fit whole slide; sampled overview until a cached reduction is ready."
             if (self.startup_overview_seconds > 0 and
                     self.session.quick_overview_eligible(self.selected_channels)):
+                # Don't paint the sparse version while the allowed startup scan
+                # is running. The first image frame will use the complete cache
+                # if it finishes before the deadline; otherwise sample as before.
+                self.message = "Preparing full-coverage overview before first frame..."
                 self._startup_target = full
                 self._startup_session = self.session
+            else:
+                self.message = "Fit whole slide; sampled overview until a cached reduction is ready."
         self.request_frame()
         if self._startup_target is not None:
             self._startup_generation = self.generation

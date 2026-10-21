@@ -813,3 +813,38 @@ initial region, zoom and Home/r restoration, and cache/foreground preemption.
 The combined run reached its execution time limit after nearly all cases and
 is **not** reported as a separate passing run. Actual native macOS terminal,
 scanner JPEG/JPEG 2000 SVS, and high-latency storage still require field tests.
+
+## No-flash full-coverage startup (October 21, 2026)
+
+This patch targets the supplied `bbdf20cf20fc83fd80aaa558c4200f0d9b1730ad`
+snapshot. The previous whole-image opening policy still had an independent,
+hard-coded 8,388,608-source-sample eligibility gate. For larger but quickly
+readable coarsest levels, the interactive viewer skipped its configured
+`--startup-overview-seconds` attempt, displayed a sparse overview immediately,
+and only then published an idle-time full-coverage reduction. Raising the
+startup time limit could not change that behavior.
+
+The quick-start eligibility decision now uses the **same configurable total
+source-scan and RAM caps** as the idle overview cache, without a second fixed
+sample-count cutoff. The existing single render worker spends at most the
+requested startup interval attempting the complete reduction before submitting
+the first image frame. A completed cache is used for that first image, without
+painting a sparse image beforehand. A scan exceeding its time budget, disabled
+cache, or ineligible scan falls back to the existing sparse first frame; idle
+preparation remains available. Navigation still preempts future chunks, and
+native codec calls cannot be interrupted or strictly time-bounded mid-read.
+`--region`, PDF refinement, viewer camera geometry, and Omeify are unchanged.
+
+**Executed validation:** 391 selected tests passed, with two Python 3.13
+`forkpty` deprecation warnings from actual POSIX terminal cases. The selected
+suite excluded the historical `test_pty.py`, `test_clipping.py`,
+`test_multiselection.py`, and `test_geojson_clip.py` modules. Included were
+startup and runtime cache tests, actual synthetic Aperio SVS/OME-TIFF readers,
+CLI snapshots, document navigation, and other non-PTY regressions. A new
+procedural 64,000-by-14,000 RGB slide has 10,500,000 coarse-level samples and
+can complete its cached reduction quickly. The test records every produced
+image frame and asserts the **first** one is cached, rather than checking only
+a later improved frame. The same larger slide exercises synchronous snapshot
+preparation. Work-cap rejection, a short deadline, and user-command preemption
+are also tested. All Python modules parse under Python 3.11 grammar. This is
+not production JPEG-SVS, high-latency storage, or native macOS terminal testing.

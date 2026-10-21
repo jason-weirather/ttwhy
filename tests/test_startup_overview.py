@@ -11,8 +11,8 @@ from prompt_toolkit.input import create_pipe_input
 
 from ttwhy import TextRenderer, Viewport, ViewSession
 from ttwhy.cli import main
-from ttwhy.startup_overview import (MAX_STARTUP_OVERVIEW_SOURCE_SAMPLES,
-                                    prepare_fast_overview, startup_fit)
+from ttwhy.startup_overview import prepare_fast_overview, startup_fit
+from ttwhy.runtime_overview import DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS
 from ttwhy.viewer import Viewer
 from test_sampled_overview import GradientSlide, SizedOutput
 
@@ -83,6 +83,60 @@ async def test_quick_reduction_finishes_before_initial_frame():
             await asyncio.wait_for(task, 8)
 
 
+
+
+@pytest.mark.asyncio
+async def test_large_fast_slide_first_image_is_cached_not_sampled(monkeypatch):
+    """An SVS-scale coarsest level can exceed the old hidden 8M-sample gate.
+
+    The first *rendered* frame, not merely the last frame observed after idle
+    refinement, must use the full-coverage overview when the time budget allows.
+    """
+    from importlib import import_module
+
+    source = GradientSlide(64_000, 14_000)
+    assert source.shapes[-1][0] * source.shapes[-1][1] * 3 > 8_388_608
+    with RGBImage(source) as image, ViewSession(image) as session, \
+            create_pipe_input() as pipe:
+        assert session.quick_overview_eligible()  # Regression: previously False.
+        module = import_module("ttwhy.viewer.viewer")
+        original = module.make_frame
+        first_frames = []
+
+        def record_first_frame(session, request):
+            result = original(session, request)
+            first_frames.append(result.samples.cached_overview)
+            return result
+
+        monkeypatch.setattr(module, "make_frame", record_first_frame)
+        viewer = Viewer(session, renderer=TextRenderer(mode="blocks"),
+                        startup_overview_seconds=5)
+        task = asyncio.create_task(viewer.run(input=pipe, output=SizedOutput()))
+        try:
+            await displayed(viewer, task, timeout=12)
+            assert first_frames == [True]  # No sparse image was ever painted.
+            assert viewer.samples.cached_overview
+            assert viewer.viewport == Viewport.fit(session.info.shape, columns=68, rows=26)
+            assert "cached overview" in viewer._status()
+        finally:
+            pipe.send_bytes(b"\x11")
+            await asyncio.wait_for(task, 8)
+
+
+def test_snapshot_startup_policy_accepts_larger_fast_coarse_level():
+    """Shared synchronous preparation should also honor time, not a fixed 8M cap."""
+    source = GradientSlide(64_000, 14_000)
+    with RGBImage(source) as image, ViewSession(image) as session:
+        assert session.quick_overview_eligible()
+        assert prepare_fast_overview(session, (0,), seconds=5)
+        full, native = startup_fit(session, TextRenderer(mode="blocks"),
+                                   columns=68, rows=26, channels=(0,))
+        assert not native
+        plan = session.plan(full, rows=52, columns=68, allow_sampled_overview=True)
+        assert plan.sampled_overview is not None
+        assert session.sample(plan).cached_overview
+
+
 @pytest.mark.asyncio
 async def test_small_deadline_still_opens_whole_slide_with_sampled_preview(monkeypatch):
     source = GradientSlide(3200, 1600)
@@ -116,10 +170,10 @@ async def test_small_deadline_still_opens_whole_slide_with_sampled_preview(monke
 
 @pytest.mark.asyncio
 async def test_very_large_scan_is_not_attempted_during_open(monkeypatch):
-    source = GradientSlide(64_000, 64_000)
+    source = GradientSlide(128_000, 100_000)
     with RGBImage(source) as image, ViewSession(image, max_read_pixels=1000) as session, \
             create_pipe_input() as pipe:
-        # The coarsest stored level would require far more than the short-scan cap.
+        # The coarsest stored level exceeds the explicitly configurable total-scan cap.
         assert not session.quick_overview_eligible()
         original = session.step_overview
         observed = []
@@ -220,10 +274,10 @@ def test_snapshot_deadline_is_checked_between_chunks(monkeypatch, mif):
 
 
 def test_scan_preflight_respects_memory_and_work_limits():
-    slide = GradientSlide(64_000, 64_000)
+    slide = GradientSlide(128_000, 100_000)
     with RGBImage(slide) as image, ViewSession(image, max_read_pixels=1000) as session:
         assert not session.quick_overview_eligible()
-        assert MAX_STARTUP_OVERVIEW_SOURCE_SAMPLES < 4000 * 4000 * 3
+        assert DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS < 8000 * 6250 * 3
         assert not prepare_fast_overview(session, (0,), seconds=2)
         assert slide.reads == []
     with MultichannelImage.from_array(np.ones((10, 10)), axes="YX") as image, ViewSession(

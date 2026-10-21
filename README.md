@@ -820,9 +820,11 @@ not a loophole that claims a full native scan fits in one foreground request.
 The initial interactive camera now **always fits the entire image**, as snapshots
 already do. Native pyramid reads take priority when affordable. Otherwise ttwhy
 attempts a full-coverage cached reduction for up to **two seconds** before the
-first frame, without blocking the terminal event loop. If it does not finish,
-the first frame uses the labelled bounded sampled overview rather than a center
-crop; the idle-time builder may improve that same camera later. Wheel/`-`
+first image frame, without blocking the terminal event loop. **No sparse image is
+painted while that attempt is running.** If the reduction completes, the first
+image frame is the cached full-coverage overview. If it does not, the first frame
+uses the labelled bounded sampled overview rather than a center crop; the idle-time
+builder may improve that same camera later. Wheel/`-`
 zooms out farther, and **`r`/Home** restores the whole-image fit. Blank margins
 preserve the image aspect ratio. User-specified `--region` is never replaced.
 
@@ -859,8 +861,15 @@ ttwhy slide.svs --overview-cache-mib 128       # larger retention allowance
 ttwhy slide.svs --overview-cache-mib 0         # disable preparation; retain sampled fallback
 ttwhy slide.svs --overview-max-source-pixels 268435456  # explicitly allow more scan I/O
 ttwhy slide.svs --startup-overview-seconds 0     # skip quick startup scan (idle build remains)
-ttwhy slide.svs --startup-overview-seconds 3     # allow a little longer before first frame
+ttwhy slide.svs --startup-overview-seconds 3     # give a full-coverage overview longer to finish before first image frame
 ```
+
+The quick-start attempt is limited by the same `--overview-max-source-pixels` and
+`--overview-cache-mib` caps as idle preparation. It has **no additional hard-coded
+coarse-level size threshold**: increasing `--startup-overview-seconds` can help a
+larger eligible slide finish before its first frame. A single native codec read
+can still overrun the deadline. Setting the time to `0` displays the sampled
+fallback immediately when a native full view is unaffordable.
 
 Foreground frames take priority over further overview chunks. Preparation uses
 **the existing single display worker**, not concurrent calls into the same TIFF
