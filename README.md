@@ -521,7 +521,7 @@ ttwhy slide.ome.tif --region 10000 12000 2500 1800
 ```
 
 The image occupies the main pane. The sidebar shows channel selection and the
-focused channel's lower limit, upper limit, and gamma. It can be hidden with `c`,
+focused channel's lower limit, upper limit, gamma, and pseudocolor. It can be hidden with `c`,
 and automatically hides below 70 terminal columns. The terminal's own pane can
 still be split by tmux; ttwhy does not implement a shell or manage tmux sessions.
 
@@ -542,7 +542,8 @@ still be split by tmux; ttwhy does not implement a shell or manage tmux sessions
 | Space; click a sidebar channel | Toggle the focused channel in the composite |
 | `1` through `9` | Solo channels 0 through 8 |
 | `l` / `u` / `g` | Enter the focused channel's lower / upper limit / gamma |
-| Enter; Escape or Ctrl-C while editing | Apply; cancel numeric entry |
+| `h`; click a color swatch | Edit the focused intensity channel's color (hex/name/default); swatch clicks focus without toggling the channel |
+| Enter; Escape or Ctrl-C while editing | Apply; cancel numeric/color entry |
 | `a` | Estimate and lock contrast from the focused channel's visible preview |
 | `m` | Enter colored artwork, then cycle detail / shape / simple / blocks |
 | `b` | Toggle half-block preview; restore the previous text mode and color setting |
@@ -635,9 +636,70 @@ channel from the current visible preview; manual `l/u` values remain in raw unit
 when `a` re-estimates the lower and upper limits.
 
 Multiplex composition windows each selected channel separately, adds a deterministic
-pseudocolor, and clips the composite. Colors are assigned by channel index, not by
-inferred marker identity. There is no color picker in this first version; the library
-accepts explicit RGB colors through `ChannelStyle`.
+pseudocolor, and clips the composite. Default colors are assigned by channel index,
+not by inferred marker identity. Single-channel intensity images default to white.
+
+**`h` edits the focused channel's hue/color**, alongside `l/u/g` for its lower
+limit, upper limit and gamma. Use `,`/`.` or the sidebar to focus a channel first.
+A two-cell color swatch sits at the right of each intensity channel row. Clicking
+that swatch focuses the channel and opens its color editor **without toggling it**;
+clicking the rest of the row still toggles visibility. The focused channel's
+**h: Color** row also opens the editor when clicked.
+
+The entry starts with the current hex color. Use **Ctrl-A, Ctrl-K** to replace it,
+then **Enter** to apply; **Escape** or **Ctrl-C** cancels. Accepted input:
+
+* `#3366FF` or `3366FF`; short hex `#36F` or `36F` also works.
+* `blue`, `cyan`, `magenta`, `red`, `green`, `yellow`, `orange`, `purple`/`violet`,
+  `white`, `black`, or `gray`/`grey`, case-insensitive. These are an explicit small
+  palette: RGB primaries use full intensity, orange is `#FF8000`, purple/violet is
+  `#8000FF`, and gray/grey is `#808080`. Arbitrary CSS names/functions are not parsed.
+* `default` restores that channel's original palette color exactly.
+
+Invalid input stays in the editor and leaves the prior color intact. Editing a
+hidden channel does not select it or read its pixels. Colors are independent of
+contrast/gamma, remain fixed while panning, zooming and toggling channels/modes,
+and are available with the sidebar hidden or in full-terminal mode. Changing a
+visible channel's color rerenders the current samples on the existing worker,
+without rereading image data, even when `--cache-mib 0` disables the preview LRU.
+If a camera/channel/resolution change is pending, its new view can require its
+normal read. Background overview preparation remains separate work.
+
+These are **intensity-channel pseudocolors**, not a color-balance control for
+native RGB images, photographs, or PDFs. RGB keeps its original three samples;
+`h` explains that distinction instead of tinting the picture. Color entry does
+not switch a monochrome/ASCII view into color; `m` restores colored artwork.
+Controls remain frozen while selecting; subsequent ANSI and PNG clips use the
+chosen displayed colors, including when cycling selection preview styles.
+
+Colors are session-local, not written into the input or a settings file. Opening
+a different TIFF/Zarr series resets its colors and contrast to that series' defaults;
+there is no cross-series marker-name matching or persistent palette in this pass.
+
+### Set channel colors at startup or in a snapshot
+
+Repeat **`--channel-color INDEX COLOR`** using zero-based **source** indices,
+independently of `--channel` selection order. Colors may be set for initially
+hidden channels. Duplicate overrides, invalid colors, out-of-range indices and
+RGB/PDF overrides fail explicitly. Quote colors beginning with `#` in a shell.
+
+```bash
+# Deeper blue DAPI, cyan marker; works with local and remote OME-TIFF/OME-Zarr.
+ttwhy tonsil.ome.zarr --channel 0 --channel 2 \
+  --channel-color 0 '#3366FF' --channel-color 2 cyan
+
+# The same palette for a portable ANSI snapshot.
+ttwhy tonsil.ome.zarr --channel 0 --channel 2 \
+  --channel-color 0 '#3366FF' --channel-color 2 cyan \
+  --snapshot --ansi -o tonsil.ansi
+```
+
+Startup overrides apply to the initially selected series. Python frontends accept
+`Viewer(session, channel_colors={0: "#3366FF", 2: "cyan"})` and the same
+`channel_colors=` argument to `view_file()`. The lower-level `ChannelStyle` API
+continues to accept explicit normalized RGB tuples without string parsing.
+
+### Rendering color
 
 Simple uses ` .:-=+*#%@`, with character density for brightness and peak-normalized
 foreground color for hue. Detail/shape compute ink structure from the strongest
@@ -984,8 +1046,7 @@ multi-marker images. Python sessions accept an open Omeify intensity or RGB Imag
 including array and procedural backends. PDF pages and TIFF series can be navigated
 in-app; `--page` and `--series` choose the initial selection. Raster `--frame`
 selection remains startup-only. Non-singleton TIFF Z/T stacks and unsupported Zarr plane selections, label-specific
-categorical coloring, raw vendor formats, persistent annotation editing, segmentation overlays, saved view settings, custom colors in
-the sidebar, and ICC-managed color are not implemented. Explicit categorical LabelImages are rejected rather than assigning continuous
+categorical coloring, raw vendor formats, persistent annotation editing, segmentation overlays, saved view settings and ICC-managed color are not implemented. Explicit categorical LabelImages are rejected rather than assigning continuous
 brightness to arbitrary object IDs. OME-TIFF alone does not declare label semantics;
 CLI users must not interpret numeric label brightness as expression. The reader fails clearly
 on unsupported inputs. Font-dependent density and terminal color approximation

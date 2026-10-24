@@ -157,7 +157,7 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
             viewer.begin_edit(field)
         return begin_edit
 
-    for key, field in (("l", "lower"), ("u", "upper"), ("g", "gamma")):
+    for key, field in (("l", "lower"), ("u", "upper"), ("g", "gamma"), ("h", "color")):
         bindings.add(key, filter=browsing)(edit(field))
 
     @bindings.add("a", filter=browsing)

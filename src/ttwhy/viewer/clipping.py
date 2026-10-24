@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..channel_colors import apply_channel_colors
 from ..geojson_clip import dumps as dump_geojson
 from ..geojson_clip import geometry_feature
 from ..annotation_identity import IdentityFactory
@@ -280,6 +281,8 @@ class ClipController:
                 styles = viewer.session.prepare_styles(
                     viewer.samples, windows=[viewer.windows[i]
                                              for i in viewer.samples.plan.channels])
+                styles = apply_channel_colors(styles, viewer.samples.plan.channels,
+                                              viewer.channel_colors)
                 frame = viewer.session.render(
                     viewer.samples, styles=styles, renderer=renderer,
                     rows=self.selection.frame.shape[0], columns=self.selection.frame.shape[1])

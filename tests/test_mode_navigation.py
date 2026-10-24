@@ -140,7 +140,8 @@ def test_frozen_multiselection_cycles_without_sampling_or_moving_areas(monkeypat
             return tuple(channels)
 
         def prepare_styles(self, *args, **kwargs):
-            return ()
+            from ttwhy import ChannelStyle, IntensityWindow
+            return (ChannelStyle(IntensityWindow(0, 1)),)
 
         def render(self, samples, *, styles, renderer, rows, columns):
             return renderer.render(data, rows=rows, columns=columns)

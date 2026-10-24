@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from ..channel_colors import RGBColor, apply_channel_colors
 from ..intensity_window import IntensityWindow
 from ..text_image import TextImage
 from ..text_renderer import TextRenderer
@@ -18,6 +19,8 @@ class FrameRequest:
     channels: tuple[int, ...]
     windows: tuple[IntensityWindow | None, ...]
     renderer: TextRenderer
+    colors: tuple[RGBColor, ...] | None = None
+    cached_samples: ViewSamples | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,8 +52,16 @@ def make_frame(session: ViewSession, request: FrameRequest) -> FrameResult:
     rows, columns = request.renderer.sample_shape(columns=request.columns, rows=request.rows)
     plan = session.plan(request.viewport, rows=rows, columns=columns,
                         channels=request.channels, allow_sampled_overview=True)
-    samples = session.sample(plan)
+    cached = request.cached_samples
+    reuse = cached is not None and cached.plan == plan
+    if (reuse and plan.sampled_overview is not None and not cached.cached_overview
+            and session.overview_ready(request.channels)):
+        # An overview may have completed while a hue request was queued. Do not
+        # pin the old sparse preview after the one completion notification passes.
+        reuse = False
+    samples = cached if reuse else session.sample(plan)
     styles = session.prepare_styles(samples, windows=[request.windows[i] for i in request.channels])
+    styles = apply_channel_colors(styles, request.channels, request.colors)
     frame = session.render(samples, styles=styles, renderer=request.renderer,
                            columns=request.columns, rows=request.rows)
     return FrameResult(

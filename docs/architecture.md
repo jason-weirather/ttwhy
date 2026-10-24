@@ -462,3 +462,38 @@ and region identities/masks untouched. The viewer's normal style is restored aft
 selection. Full-terminal
 name/file prompts use a conditional floating entry row, avoiding selection loss
 from a canvas resize. The normal viewer gains no additional UI rows.
+
+
+## Session-local channel color controls (October 24, 2026)
+
+`channel_colors.py` centralizes the existing exact floating-point default palette,
+strict hex/name/default parsing, and attaching colors to prepared `ChannelStyle`
+records. `Viewer` owns colors indexed by the full source channel list, separately
+from its intensity windows. The same override map enters the CLI snapshot and
+file-viewer paths. It does not mutate Omeify image metadata, pixels, or calibration,
+and introduces no dependency or alternative renderer.
+
+`h` shares the existing entry widget and cancellation behavior. It can edit a
+hidden/unread intensity channel without forcing a window estimate or visibility
+change. RGB input rejects pseudocolor overrides. An unchanged prefilled hex entry
+preserves the original floating-point color rather than quantizing it on Enter;
+`default` also restores that exact value. Input errors cannot partially update a
+palette. A color edit captures its source session/channel, so a pending series
+handoff cannot apply an old edit to a different source. Series changes initialize
+a fresh palette alongside the existing fresh windows.
+
+Every `FrameRequest` snapshots immutable colors, not a borrowed mutable UI list.
+For a color-only update it may also retain the already-displayed `ViewSamples`.
+The worker recomputes the metadata-only read plan and reuses those samples only
+when the plans match exactly. Otherwise it performs the ordinary budgeted read.
+This avoids extra pixel reads even with the preview LRU disabled, without reusing
+an old view after a pan, channel change, canvas resize, or source replacement.
+Normal camera/mode/overview scheduling and stale-generation rejection remain in
+place. Frozen selection renderer previews use the same palette; ANSI/PNG export
+continues to serialize the actual frozen artwork, not source metadata.
+
+The sidebar's right-aligned swatches use terminal-cell widths, including wide
+Unicode channel labels. Clicking a swatch edits rather than toggles; the rest of
+the row retains visibility toggling. The focused hue/color row is clickable too.
+At short heights channel-list paging still reserves at least one visible channel;
+the `h` key remains available even when its detail row or the sidebar is hidden.

@@ -9,6 +9,7 @@ from tempfile import NamedTemporaryFile
 import click
 
 from . import __version__
+from .channel_colors import apply_channel_colors, channel_palette, parse_color
 from .image_input import image_kind, open_image, pdf_raster_shape
 from .pdf_workers import DEFAULT_PDF_MAX_DPI, pdf_dpi_steps
 from .intensity_window import IntensityWindow
@@ -70,6 +71,10 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
               help="Matte for raster transparency and PDF pages (default: white).")
 @click.option("--channel", "channels", type=click.IntRange(min=0), multiple=True, default=(0,),
               help="Zero-based logical channel. Repeat to composite multiple markers.")
+@click.option("--channel-color", "channel_color_entries", type=(click.IntRange(min=0), str),
+              multiple=True, metavar="INDEX COLOR",
+              help="Intensity-channel pseudocolor: #RGB, #RRGGBB, name, or default. Repeat per "
+                   "zero-based source channel; viewer and ANSI snapshots. Not for RGB/PDF.")
 @click.option("--lower", type=float,
               help="Lower display limit in raw intensity units; pair with --upper.")
 @click.option("--upper", type=float,
@@ -130,6 +135,7 @@ def main(
     s3_endpoint_url: str | None, s3_anonymous: bool, page: int | None, frame_index: int | None,
     pdf_max_dpi: float | None, pdf_cache_pages: int | None,
     background: str | None, channels: tuple[int, ...], lower: float | None,
+    channel_color_entries: tuple[tuple[int, str], ...],
     upper: float | None, mode: str, color: bool | None, invert: bool | None,
     cell_aspect: float, region: tuple[float, ...] | None, cache_mib: float,
     max_read_pixels: int, overview_cache_mib: float, overview_max_source_pixels: int,
@@ -143,10 +149,20 @@ def main(
 
     Wheel/+/- zoom, arrows or mouse drag pan, c toggles the channel panel.
     PgUp/PgDn or [/] flip PDF pages/OME series; p jumps to a specific page/series.
-    l/u/g edit limits and gamma; m cycles colored modes; M cycles ASCII ramps; b toggles blocks; ? shows help.
+    l/u/g edit limits and gamma; h edits channel color.
+    m cycles colored modes; M cycles ASCII ramps; b toggles blocks; ? shows help.
     s selects a rectangle; v starts a polygon; j copies GeoJSON; J saves it.
     Selection: y/Y text, i/I PNG, t/T ANSI, j/J GeoJSON (copy/save).
     """
+    channel_colors = {}
+    for index, text in channel_color_entries:
+        try:
+            parse_color(text)
+            if index in channel_colors:
+                raise ValueError(f"Channel {index} has more than one color override")
+        except ValueError as error:
+            raise click.BadParameter(str(error), param_hint="--channel-color") from error
+        channel_colors[index] = text
     if (lower is None) != (upper is None):
         raise click.UsageError("--lower and --upper must be supplied together")
     if not snapshot and (output_path is not None or ansi):
@@ -215,7 +231,8 @@ def main(
                     s3_endpoint_url=s3_endpoint_url, s3_anonymous=s3_anonymous,
                     source_name=source.label,
                     pdf_max_dpi=pdf_max_dpi, pdf_cache_pages=pdf_cache_pages, background=matte,
-                    channels=channels, window=window, mode=mode, color=use_color, invert=invert,
+                    channels=channels, channel_colors=channel_colors,
+                    window=window, mode=mode, color=use_color, invert=invert,
                     cell_aspect=cell_aspect, viewport=viewport, cache_mib=cache_mib,
                     max_read_pixels=max_read_pixels, overview_cache_mib=overview_cache_mib,
                     overview_max_source_pixels=overview_max_source_pixels,
@@ -248,6 +265,8 @@ def main(
                         viewport = Viewport(viewport.x * sx, viewport.y * sy,
                                             viewport.width * sx, viewport.height * sy)
                 selected = session._select_channels(channels)
+                colors = channel_palette(len(session.info.channels), is_rgb=session.info.is_rgb,
+                                         overrides=channel_colors)
                 renderer = TextRenderer(
                     mode=mode, color=use_color,
                     invert=session.info.is_rgb if invert is None else invert, cell_aspect=cell_aspect,
@@ -274,6 +293,7 @@ def main(
                                 "Sampled overview: sparse navigational preview, not a complete "
                                 "native reduction."), err=True)
                 styles = session.prepare_styles(samples, windows=[window] * len(selected))
+                styles = apply_channel_colors(styles, selected, colors)
                 frame = session.render(samples, styles=styles, renderer=renderer,
                                        columns=columns, rows=rows)
                 text = frame.to_text(ansi=ansi) + "\n"

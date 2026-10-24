@@ -865,3 +865,87 @@ then the actual installed-wheel smoke lane. Test remote-S3 behavior against an
 authorized endpoint separately; out-of-tree S3 transport spies are routing
 checks, not a real S3 integration test. Do not confuse an available local
 HTTP server with production object-store validation.
+
+## Per-channel color controls (October 24, 2026)
+
+This patch targets `ef5f9f4caa6f2fffc8e0bfd9523b34bd4c505f1b`. All 72 source
+snapshot files were reconstructed with their byte sizes and final-newline flags
+checked. It adds `h` color entry, clickable channel swatches and the focused color
+row, and repeatable `--channel-color INDEX COLOR` overrides. Existing `l/u/g`
+shortcuts, exact default palette values, numerical windows, source pixels,
+version 0.2.0, and dependency requirements are unchanged.
+
+### Executed checks
+
+**567 tests passed and one skipped across two disjoint regression runs:**
+466 passed in the main lane and 101 passed/one skipped in the additional
+clipboard, geometry, PDF-text, channel-paging and terminal lane. The main lane
+includes **all 67 new color tests**. The additional lane's skip is the existing
+real-coolname vocabulary test: that distribution is unavailable in this execution
+environment and package-download access failed. The final runs exclude 38 other
+existing selection/naming-dependent cases, not the new color tests. An attempted
+full run encountered missing-coolname selection failures and was stopped; this
+is **not a claim that the complete repository suite passed**. No global naming
+substitute was installed. Individual tests that intentionally isolate naming
+use their own deterministic fixtures, as the existing unit tests do.
+
+The main regression command was:
+
+```bash
+python -m pytest -q --ignore=tests/test_clipping.py \
+  --ignore=tests/test_multiselection.py --ignore=tests/test_geojson_clip.py \
+  --ignore=tests/test_pty.py
+```
+
+The additional disjoint run exercised the synchronous clipping/geometry/PNG
+checks, native PDF rectangle extraction, selected identity/mask unit tests,
+128-channel paging, the PDF-worker cancellation regression, and all twelve
+non-selection cases in `test_pty.py`. The new color module itself includes another
+real PTY test; two existing overview PTY cases are in the main lane. The fifteen
+warnings across these lanes were Python 3.13 forkpty deprecation warnings from
+the terminal harness, not failed assertions.
+
+New tests cover strict hex/name/default parsing, invalid/duplicate/out-of-range
+CLI options, default-rendering equivalence in all four modes, independent
+channel ordering, hidden/unread channels, unchanged numeric windows, no-op Enter
+without color quantization, invalid entry and cancellation, monochrome behavior,
+full-terminal entry, swatch hit testing, wide Unicode labels, and source/series
+changes while entry is pending. Native RGB rejects pseudocoloring. Startup colors
+are propagated through both file-viewer paths and snapshots.
+
+A real Omeify-backed session with its preview LRU disabled forbids further
+`sample()` calls while testing repeated color edits: the displayed samples are
+reused. Separate tests require normal reads when the camera changed, and require
+a newly completed runtime overview to replace an old sparse preview rather than
+getting stuck behind a queued color request. Frozen selection mode changes keep
+the chosen palette. Actual saved PNG and ANSI clips are checked for the expected
+RGB bytes/codes. The terminal test enters `h`, types `#3366ff`, observes its color
+escape codes, and checks restored terminal screen/mouse/cursor state on exit.
+
+### Visual, build, and environment checks
+
+The actual prompt_toolkit screen was captured and reconstructed for inspection
+with a local font. The focused-channel color row, right-aligned swatches, limits,
+gamma, footer, and unchanged image area were inspected. A real SGR mouse click
+on channel 1's swatch opened that editor without changing selected channels.
+The inspection image and font are not part of the patch or package.
+
+Linux, Python 3.13.5, NumPy 2.3.5, SciPy 1.17.0, Pillow 12.3.0,
+prompt_toolkit 3.0.52, pypdfium2 5.8.0, tifffile 2026.5.15, and pytest 9.0.2.
+TIFF and Image integration uses the actual Omeify 0.22.1 source reconstructed
+from the previously supplied `077d285` snapshot, not a mocked reader. All 65
+source/test/example Python modules parse with Python 3.11 grammar. This is not
+an executed Python 3.11 runtime or minimum-dependency test.
+
+Wheel and sdist construction passed through the installed setuptools backend.
+The wheel was installed outside the checkout and rendered a real OME-TIFF
+snapshot with the requested `#3366FF` foreground/background codes. That smoke
+check reused this environment's numerical dependencies and the real Omeify
+source; it does not certify a fresh PyPI dependency resolution. The generated
+patch was checked/applied to a fresh exact reconstruction and its resulting
+files compared byte-for-byte with the tested working tree.
+
+Native macOS/Windows terminal behavior, actual desktop clipboards, SSH/tmux,
+production slides and real remote Zarr/S3 stores were not exercised by this
+color-control pass. The existing source/transport behavior is unchanged. Colors
+remain display-only and session-local, with series changes resetting the palette.

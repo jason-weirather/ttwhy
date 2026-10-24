@@ -14,7 +14,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ._validation import positive_integer
-from .compositing import CHANNEL_COLORS, ChannelStyle, compose_channels
+from .compositing import ChannelStyle, compose_channels
+from .channel_colors import default_color
 from .intensity_window import IntensityWindow, estimate_window
 from .view_info import PyramidLevel, ReadBudgetExceeded, ViewInfo
 from .resampling import resample_image
@@ -420,8 +421,7 @@ class ViewSession:
                     window = estimate_window(values)
                 else:
                     window = IntensityWindow(0, 1)
-            color = ((1.0, 1.0, 1.0) if samples.is_rgb or len(self.info.channels) == 1
-                     else CHANNEL_COLORS[index % len(CHANNEL_COLORS)])
+            color = default_color(index, len(self.info.channels), is_rgb=samples.is_rgb)
             styles.append(ChannelStyle(window, color))
         return tuple(styles)
 

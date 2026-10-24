@@ -260,6 +260,7 @@ class DocumentNavigation:
                 viewer.focused_channel = 0
                 viewer.channel_control.first_channel = 0
                 viewer.windows = [self.default_window] * len(session.info.channels)
+                viewer.reset_channel_colors()
                 if self.auto_invert:
                     # A new RGB/intensity series gets its normal default. A user
                     # density edit disables this policy in Viewer.change_renderer.

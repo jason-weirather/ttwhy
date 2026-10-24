@@ -19,6 +19,7 @@ from .viewer import Viewer
 
 async def _view_resolved_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
                     pdf_cache_pages=None, background=None, channels=(0,), window=None,
+                    channel_colors=None,
                     mode="blocks", color=True, invert=None, cell_aspect=2.0,
                     viewport=None, cache_mib=32.0, max_read_pixels=4_194_304,
                     overview_cache_mib=DEFAULT_OVERVIEW_CACHE_MIB,
@@ -65,7 +66,8 @@ async def _view_resolved_file(path, *, series=0, page=None, frame=None, pdf_max_
             renderer = TextRenderer(mode=mode, color=color,
                                     invert=session.info.is_rgb if invert is None else invert,
                                     cell_aspect=cell_aspect)
-            await Viewer(session, channels=channels, window=window, renderer=renderer,
+            await Viewer(session, channels=channels, channel_colors=channel_colors,
+                         window=window, renderer=renderer,
                          viewport=viewport, startup_overview_seconds=startup_overview_seconds,
                          **clipping).run(input=input, output=output)
         return
@@ -86,7 +88,8 @@ async def _view_resolved_file(path, *, series=0, page=None, frame=None, pdf_max_
                                 invert=navigation.session.info.is_rgb if invert is None else invert,
                                 cell_aspect=cell_aspect)
         viewer = Viewer(navigation.session, navigation=navigation, channels=channels,
-                        window=window, renderer=renderer, viewport=viewport,
+                        window=window, channel_colors=channel_colors,
+                        renderer=renderer, viewport=viewport,
                         startup_overview_seconds=startup_overview_seconds, **clipping)
         await viewer.run(input=input, output=output)
     finally:

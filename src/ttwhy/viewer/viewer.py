@@ -1,7 +1,7 @@
 """A full-screen microscopy viewer with one coalescing render worker."""
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from time import monotonic
@@ -19,6 +19,7 @@ from prompt_toolkit.output import Output
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import TextArea
 
+from ..channel_colors import channel_palette, color_hex, default_color, parse_color
 from ..intensity_window import IntensityWindow
 from ..startup_overview import (DEFAULT_STARTUP_OVERVIEW_SECONDS, startup_fit,
                                 validate_startup_seconds)
@@ -51,6 +52,7 @@ class Viewer:
         *,
         channels: Sequence[int] = (0,),
         window: IntensityWindow | None = None,
+        channel_colors: Mapping[int, str] | None = None,
         renderer: TextRenderer | None = None,
         viewport: Viewport | None = None,
         navigation=None,
@@ -70,6 +72,9 @@ class Viewer:
         self.selected_channels = session._select_channels(channels)
         self.focused_channel = self.selected_channels[0]
         self.windows = [window] * len(session.info.channels)
+        self.channel_colors = channel_palette(len(session.info.channels),
+                                              is_rgb=session.info.is_rgb, overrides=channel_colors)
+        self._color_edit_target: tuple[ViewSession, int] | None = None
         self.renderer = renderer or TextRenderer(invert=session.info.is_rgb)
         self.text_mode = (self.renderer.mode if self.renderer.mode in TEXT_MODES else "detail")
         self.text_color = self.renderer.color
@@ -117,6 +122,8 @@ class Viewer:
         if self.editing == "destination" and self.navigation is not None:
             doc = self.navigation.document
             return f" Go to {doc.label} ({doc.first_index}..{doc.last_index}; Enter / Esc): "
+        if self.editing == "color":
+            return " Color (hex/name/default; Enter / Esc): "
         units = "unitless" if self.editing == "gamma" else "raw units"
         return f" {self.editing or ''} ({units}; Enter / Esc): "
 
@@ -316,13 +323,17 @@ class Viewer:
         # Explicitly yield even for a very cheap in-memory provider.
         await asyncio.sleep(0)
 
-    def request_frame(self) -> None:
+    def request_frame(self, *, reuse_samples: bool = False) -> None:
         if self.selecting or self.viewport is None or not all(self.canvas_size) or self._wake is None:
             return
         self.generation += 1
         columns, rows = self.canvas_size
-        self._pending = FrameRequest(self.generation, self.viewport, columns, rows,
-                                     self.selected_channels, tuple(self.windows), self.renderer)
+        self._pending = FrameRequest(
+            self.generation, self.viewport, columns, rows,
+            self.selected_channels, tuple(self.windows), self.renderer,
+            colors=tuple(self.channel_colors),
+            cached_samples=self.samples if reuse_samples else None,
+        )
         self.busy = True
         self._wake.set()
         self.application.invalidate()
@@ -561,16 +572,32 @@ class Viewer:
             self.application.layout.focus(self.canvas)
             self.application.invalidate()
 
+    def reset_channel_colors(self) -> None:
+        """A different series gets its own defaults, just as its contrast windows do."""
+        info = self.session.info
+        self.channel_colors = channel_palette(len(info.channels), is_rgb=info.is_rgb)
+
     def begin_edit(self, field: str) -> None:
-        if self.selecting:
+        if self.selecting or self.editing is not None:
             return
-        window = self.windows[self.focused_channel]
-        if window is None:
-            self.message = "Select this channel and wait for its initial image before editing."
-            self.application.invalidate()
-            return
+        if field == "color":
+            if self.session.info.is_rgb:
+                self.message = ("RGB uses native colors; channel pseudocolors apply "
+                                "to intensity images.")
+                self.application.invalidate()
+                return
+            self._color_edit_target = (self.session, self.focused_channel)
+            text = color_hex(self.channel_colors[self.focused_channel])
+            self.message = "Color: hex or blue/cyan/magenta/red/green/yellow/white; default resets."
+        else:
+            window = self.windows[self.focused_channel]
+            if window is None:
+                self.message = "Select this channel and wait for its initial image before editing."
+                self.application.invalidate()
+                return
+            text = f"{getattr(window, field):g}"
         self.editing = field
-        self.entry.text = f"{getattr(window, field):g}"
+        self.entry.text = text
         self.entry.buffer.cursor_position = len(self.entry.text)
         self.application.layout.focus(self.entry)
         self.application.invalidate()
@@ -598,6 +625,8 @@ class Viewer:
             self.application.invalidate()
 
     def _accept_edit(self, buffer: Buffer) -> bool:
+        if self.editing == "color":
+            return self._accept_color(buffer.text)
         if self.editing in ("save-text", "save-ansi", "save-png", "save-geojson"):
             self.clipping.accept_path(buffer.text, ansi=self.editing == "save-ansi",
                                       image=self.editing == "save-png",
@@ -630,8 +659,37 @@ class Viewer:
         self.request_frame()
         return True
 
+    def _accept_color(self, text: str) -> bool:
+        target = self._color_edit_target
+        if target is None or target[0] is not self.session:
+            self.cancel_edit()
+            self.message = "Image changed while editing; press h to edit the new channel's color."
+            return True
+        index = target[1]
+        current = self.channel_colors[index]
+        try:
+            # Enter on the unmodified rounded hex display must not quantize the
+            # original floating-point palette. 'default' also restores it exactly.
+            color = current if text.strip().casefold() == color_hex(current).casefold() else (
+                parse_color(text))
+            if color is None:
+                color = default_color(index, len(self.channel_colors))
+        except ValueError as error:
+            self.message = f"Invalid color: {error}"
+            self.application.invalidate()
+            return True
+        self.channel_colors[index] = color
+        self.cancel_edit()
+        self.message = f"Channel {index}: color = {color_hex(color)}"
+        if not self.renderer.color:
+            self.message += " (color display is off; m restores it)"
+        if color != current and index in self.selected_channels:
+            self.request_frame(reuse_samples=True)
+        return True
+
     def cancel_edit(self) -> None:
         self.editing = None
+        self._color_edit_target = None
         self.application.layout.focus(self.canvas)
         self.application.invalidate()
 
@@ -672,8 +730,9 @@ class Viewer:
     def _footer_text(self) -> str:
         if self.show_help:
             return (" | m: color | M: ASCII | t: toggle color | q: quit\n"
-                    " Arrows: pan | +/-: zoom | r: fit | Tab: channels | l/u/g: limits | ?: less")
-        return " | m:color M:ASCII ?:help q:quit\n " + safe_label(self.message)
+                    " Arrows: pan | +/-: zoom | r: fit | Tab: channels "
+                    "| l/u/g: limits | h: color | ?: less")
+        return " | h:hue m:color M:ASCII ?:help q:quit\n " + safe_label(self.message)
 
     def __repr__(self) -> str:
         return (f"Viewer(channels={self.selected_channels}, mode={self.renderer.mode!r}, "

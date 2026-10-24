@@ -2,6 +2,10 @@
 
 from typing import TYPE_CHECKING
 
+from wcwidth import wcwidth
+
+from ..channel_colors import color_hex
+
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.layout.controls import UIContent, UIControl
 from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
@@ -13,6 +17,18 @@ if TYPE_CHECKING:
 def safe_label(text: str) -> str:
     """Keep metadata literal and single-line, excluding terminal control characters."""
     return "".join(character if character.isprintable() else "?" for character in text)
+
+
+def _padded_label(text: str, width: int) -> str:
+    """Fit literal metadata to terminal cells so a right-aligned swatch stays clickable."""
+    result, used = [], 0
+    for char in safe_label(text):
+        size = max(0, wcwidth(char))
+        if used + size > width:
+            break
+        result.append(char)
+        used += size
+    return "".join(result) + " " * (width - used)
 
 
 class CanvasControl(UIControl):
@@ -82,12 +98,16 @@ class ChannelControl(UIControl):
         self.first_channel = 0
         self.visible_channels = 1
         self.channel_row_start = 1
+        self.swatch_columns = (0, 0)
+        self.color_row: int | None = None
 
     def is_focusable(self) -> bool:
         return True
 
     def create_content(self, width: int, height: int) -> UIContent:
         viewer, info = self.viewer, self.viewer.session.info
+        self.color_row = None
+        self.swatch_columns = (width - 3, width - 1) if width >= 4 else (0, 0)
         if viewer.selecting:
             selection = viewer.clipping.selection
             tool_help = (" Click first / Enter: close" if selection.kind == "polygon" else
@@ -106,7 +126,7 @@ class ChannelControl(UIControl):
             return UIContent(get_line=lambda row: lines[row] if row < len(lines) else [],
                              line_count=len(lines), show_cursor=False)
         count = len(info.channels)
-        details_height = min(6, max(0, height // 3))
+        details_height = min(7, max(0, height // 3))
         self.channel_row_start = 1 if height > 1 else 0
         self.visible_channels = min(count, max(1, height - self.channel_row_start - details_height))
         self.first_channel = min(max(0, self.first_channel), max(0, count-self.visible_channels))
@@ -121,13 +141,31 @@ class ChannelControl(UIControl):
             focus = ">" if index == viewer.focused_channel else " "
             selected = "x" if index in viewer.selected_channels else " "
             style = "class:panel.selected" if index == viewer.focused_channel else "class:panel"
-            lines.append([(style, f"{focus}[{selected}] {index} {safe_label(info.channels[index])}")])
+            label = f"{focus}[{selected}] {index} {safe_label(info.channels[index])}"
+            if info.is_rgb or width < 4:
+                lines.append([(style, label)])
+            else:
+                color = color_hex(viewer.channel_colors[index])
+                lines.append([(style, _padded_label(label, width - 3)),
+                              (f"bg:{color}", "  "), (style, " ")])
         window = viewer.windows[viewer.focused_channel]
-        details = [f" L:{window.lower:g} U:{window.upper:g}" if window else " Limits: auto pending",
-                   f" Gamma:{window.gamma:g}" if window else " Gamma:1",
-                   " l/u/g: edit | a: auto", " Space: toggle | Enter: solo",
-                   " Wheel/arrows/PgUp/PgDn: move", " Home/End: first/last"]
-        lines.extend([[("class:panel", text)] for text in details[:max(0, height-len(lines))]])
+        color = color_hex(viewer.channel_colors[viewer.focused_channel])
+        color_line = ([("class:panel", " Color: native RGB")] if info.is_rgb else
+                      [("class:panel", " h: Color "), (f"bg:{color}", "  "),
+                       ("class:panel", f" {color}")])
+        details = [
+            [("class:panel", f" L:{window.lower:g} U:{window.upper:g}" if window else
+              " Limits: auto pending")],
+            [("class:panel", f" Gamma:{window.gamma:g}" if window else " Gamma:1")],
+            color_line,
+            [("class:panel", " l/u/g: edit | a: auto")],
+            [("class:panel", " Space: toggle | Enter: solo")],
+            [("class:panel", " Wheel/arrows/PgUp/PgDn: move")],
+            [("class:panel", " Home/End: first/last")],
+        ]
+        if not info.is_rgb and len(lines) + 2 < height:
+            self.color_row = len(lines) + 2
+        lines.extend(details[:max(0, height - len(lines))])
         return UIContent(get_line=lambda row: lines[row] if row < len(lines) else [],
                          line_count=len(lines), show_cursor=False)
 
@@ -141,11 +179,18 @@ class ChannelControl(UIControl):
         elif event.event_type == MouseEventType.SCROLL_DOWN:
             viewer.focus_channel(1)
         elif event.event_type == MouseEventType.MOUSE_UP and event.button == MouseButton.LEFT:
+            if event.position.y == self.color_row:
+                viewer.begin_edit("color")
+                return None
             row = event.position.y - self.channel_row_start
             index = self.first_channel + row
             if 0 <= row < self.visible_channels and index < len(viewer.windows):
                 viewer.focused_channel = index
-                viewer.toggle_channel()
+                left, right = self.swatch_columns
+                if not viewer.session.info.is_rgb and left <= event.position.x < right:
+                    viewer.begin_edit("color")
+                else:
+                    viewer.toggle_channel()
         return None
 
 
