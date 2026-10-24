@@ -848,3 +848,20 @@ a later improved frame. The same larger slide exercises synchronous snapshot
 preparation. Work-cap rejection, a short deadline, and user-command preemption
 are also tested. All Python modules parse under Python 3.11 grammar. This is
 not production JPEG-SVS, high-latency storage, or native macOS terminal testing.
+
+
+## Remote/Zarr ingestion and package identity (October 24, 2026)
+
+Against snapshot `3946c7a`, distribution metadata becomes `ttwhy-viewer`;
+CLI and import retain `ttwhy`. Omeify minimum is 0.22.1, including Zarr reader,
+and optional `[s3]` supplies s3fs through Omeify. The remote resource boundary
+stages only bounded single-file objects, not Zarr stores. PDF staging persists
+through document navigation, worker refinement, and clipping. Shifted pyramid
+levels are excluded from render planning to prevent offset misregistration.
+
+Test commands: `python -m pytest -q tests/test_remote_input.py`, the full
+regression suite with installed Omeify 0.22.1, Zarr, imagecodecs and coolname,
+then the actual installed-wheel smoke lane. Test remote-S3 behavior against an
+authorized endpoint separately; out-of-tree S3 transport spies are routing
+checks, not a real S3 integration test. Do not confuse an available local
+HTTP server with production object-store validation.

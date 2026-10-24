@@ -110,6 +110,31 @@ with a latest-pending-request slot. There is no unbounded queue of old wheel eve
 waiting to become images. Accepted completed frames carry their generation number;
 a stale generation cannot replace the current request's result.
 
+## Local/remote resource boundary
+
+`source_input.resolve_input()` owns the source lifetime. Local OME-Zarr directories
+and HTTP(S)/S3 Zarr store roots stay lazy through Omeify's `OMEZarrReader`;
+Zarr chunks are never predownloaded as one file. A non-Zarr HTTP(S)/S3 image,
+TIFF, SVS or PDF is streamed into a bounded temporary file (128 MiB by default)
+under its original extension for Aperio dispatch; URL query strings are never
+used as filenames or display labels. The temporary file remains available
+until the entire interactive viewer and PDF worker tree has stopped, then
+is deleted. No cached credentials, on-disk image conversion, or downstream
+raster decoder is introduced. S3 is an explicit `s3fs` optional extra.
+
+`ImageDocument` treats remote Zarr roots as URIs, not local resolved paths,
+and offers the same declared-series navigation used for TIFF. Local Zarr paths
+are directories. The public `open_image()` and `view_file()` both resolve sources,
+while direct already-resolved paths use the same reader/display implementations.
+A local file's signed-inode safety checks and PDF text extraction stay bound
+to its actual file path; remote Zarr has no local PDF source stamp.
+
+Shifted Omeify `ImageLevel.offset_yx` grids cannot be correctly sampled by the
+scale-only camera. For now `ViewInfo` excludes non-base levels whose offset
+is nonzero. All normal, sparse and cached overview paths share that filtered
+level list. Base pixels/annotation coordinates are unchanged. A future offset-
+aware camera can restore those levels without guessing a transform.
+
 ## Ordinary-file ingress
 
 `image_input.py` is deliberately a small, explicit front door, not a plugin

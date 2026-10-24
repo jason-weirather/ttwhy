@@ -10,6 +10,7 @@ import numpy as np
 
 from .image_input import _background, _index, array_image, image_kind, open_image, pdf_page_count
 from .pdf_workers import DEFAULT_PDF_MAX_DPI, pdf_dpi_steps
+from .source_input import display_name, remote_scheme
 
 if TYPE_CHECKING:
     from omeify import Image
@@ -57,9 +58,14 @@ class ImageDocument:
 
     def __init__(self, path: str | Path, *, series: int = 0, page: int | None = None,
                  frame: int | None = None, pdf_max_dpi: float | None = None,
-                 background=None) -> None:
-        self.path = Path(path).resolve()
-        self.kind = image_kind(self.path)
+                 background=None, group: str = "", z_index: int | None = None,
+                 t_index: int | None = None, s3_endpoint_url: str | None = None,
+                 s3_anonymous: bool = False, input_format: str = "auto", source_name: str | None = None) -> None:
+        self.path = str(path) if remote_scheme(path) else Path(path).resolve()
+        self.kind = image_kind(self.path, input_format=input_format)
+        self.group, self.z_index, self.t_index = group, z_index, t_index
+        self.s3_endpoint_url, self.s3_anonymous = s3_endpoint_url, s3_anonymous
+        self.source_name = source_name or display_name(path)
         self.series = _index(series, "series")
         self.page = None if page is None else _index(page, "page", minimum=1)
         self.frame = None if frame is None else _index(frame, "frame")
@@ -92,7 +98,7 @@ class ImageDocument:
         item = self.load(self.initial_index)
         try:
             self.count = (pdf_page_count(self.path) if self.kind == "pdf" else
-                          len(item.image.series_names) if self.kind == "tiff" else 1)
+                          len(item.image.series_names) if self.kind in {"tiff", "zarr"} else 1)
             self.validate_index(self.initial_index)
             return item
         except BaseException:
@@ -107,9 +113,12 @@ class ImageDocument:
         stack = ExitStack()
         try:
             image = stack.enter_context(open_image(
-                self.path, series=index if self.kind == "tiff" else self.series,
+                self.path, series=index if self.kind in {"tiff", "zarr"} else self.series,
                 page=index if self.kind == "pdf" else self.page, frame=self.frame,
-                pdf_dpi=dpi, background=self._background_option,
+                pdf_dpi=dpi, background=self._background_option, group=self.group,
+                z_index=self.z_index, t_index=self.t_index,
+                s3_endpoint_url=self.s3_endpoint_url, s3_anonymous=self.s3_anonymous,
+                input_format="zarr" if self.kind == "zarr" else "auto",
             ))
             size = (sum(int(np.prod(level.shape)) * image.dtype.itemsize for level in image.levels)
                     if self.kind == "pdf" else 0)
@@ -132,4 +141,4 @@ class ImageDocument:
         selection = (f"page {item.index}/{self.count} | {item.dpi:g} DPI raster"
                      if self.kind == "pdf" else
                      f"series {item.index} of {self.count} (0-based)")
-        return f"{self.path.name} | {selection}"
+        return f"{self.source_name} | {selection}"

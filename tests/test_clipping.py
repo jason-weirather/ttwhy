@@ -573,7 +573,7 @@ async def test_save_failure_retains_view_and_selection(rgb, tmp_path):
         viewer, pipe, _, task,
     ):
         out.write_text("created after opening")
-        await send(pipe, "s wy", viewer, task)
+        await send(pipe, "s y", viewer, task)
         await eventually(lambda: not viewer.clipping.busy, task)
         assert "already exists" in viewer.message
         assert out.read_text() == "created after opening"
@@ -616,7 +616,7 @@ async def test_accepted_save_finishes_on_immediate_quit(rgb, tmp_path):
     async with running(rgb[0], output_text_clip=out, clipboard="off") as (viewer, pipe, _, task):
         await send(pipe, "s\x1b[H \x1b[C", viewer, task)
         expected = viewer.clipping.selection.clip().to_text() + "\n"
-        pipe.send_text("wq")
+        pipe.send_text("yq")
         await asyncio.wait_for(task, 5)
         assert out.read_text() == expected
         assert viewer.clipping._executor is None

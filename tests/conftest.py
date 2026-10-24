@@ -62,3 +62,15 @@ def rgb(tmp_path):
     path = tmp_path / "rgb.ome.tif"
     arrays = write_pyramid(path, image, rgb=True)
     return path, arrays
+
+
+@pytest.fixture(autouse=True)
+def consistent_terminal_env(monkeypatch):
+    """TTY-dependent tests must not inherit CI's dumb/NO_COLOR console settings.
+
+    Individual capability tests may still change these variables explicitly.
+    """
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("PROMPT_TOOLKIT_COLOR_DEPTH", raising=False)

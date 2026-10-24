@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ttwhy"
+name = "ttwhy-viewer"
 version = "0.2.0"
 description = "Zoomable microscopy, image and PDF previews in a text terminal"
 readme = "README.md"
@@ -16,13 +16,15 @@ dependencies = [
     "coolname>=2.2,<6",
     "numpy>=2.1,<3",
     "scipy>=1.14,<2",
-    "omeify>=0.21.0",
+    "omeify>=0.22.1",
     "pillow>=11.3,<13",
     "prompt-toolkit>=3.0.52,<4",
     "wcwidth>=0.2.13",
 ]
 
 [project.optional-dependencies]
+# Optional AWS/S3-compatible transport. Local and HTTP(S) Zarr need no extra.
+s3 = ["omeify[s3]>=0.22.1"]
 pdf = ["pypdfium2>=4.30,<6"]
 dev = [
     "pytest>=8,<10",

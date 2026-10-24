@@ -371,7 +371,7 @@ def test_pdf_missing_extra_is_actionable_but_rasters_still_work(raster, tmp_path
     with open_image(raster[0]) as image:
         assert image.is_open
     result = CliRunner().invoke(main, [str(path), "--snapshot"])
-    assert result.exit_code != 0 and 'pip install "ttwhy[pdf]"' in result.output
+    assert result.exit_code != 0 and 'pip install "ttwhy-viewer[pdf]"' in result.output
 
 
 @pytest.mark.parametrize("dpi", [72, 144, 300])

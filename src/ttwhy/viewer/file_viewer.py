@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..image_document import ImageDocument
 from ..image_input import open_image
+from ..source_input import DEFAULT_MAX_REMOTE_MIB, resolve_input, remote_scheme
 from ..pdf_workers import DEFAULT_PDF_CACHE_PAGES
 from ..text_renderer import TextRenderer
 from ..runtime_overview import DEFAULT_OVERVIEW_CACHE_MIB, DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS
@@ -14,7 +17,7 @@ from .clipping import clip_options
 from .viewer import Viewer
 
 
-async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
+async def _view_resolved_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
                     pdf_cache_pages=None, background=None, channels=(0,), window=None,
                     mode="blocks", color=True, invert=None, cell_aspect=2.0,
                     viewport=None, cache_mib=32.0, max_read_pixels=4_194_304,
@@ -23,7 +26,10 @@ async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
                     startup_overview_seconds=DEFAULT_STARTUP_OVERVIEW_SECONDS,
                     input=None, output=None, output_text_clip=None, output_ansi_clip=None,
                     output_png_clip=None, output_geojson_clip=None, clipboard="auto",
-                    clip_source="auto", clip_overwrite=True) -> None:
+                    clip_source="auto", clip_overwrite=True,
+                    group="", z_index=None, t_index=None, input_format="auto",
+                    s3_endpoint_url=None, s3_anonymous=False,
+                    source_name=None) -> None:
     """Navigate a document with its normal terminal controls and renderer.
 
     mode must be a resolved TextRenderer mode (the CLI resolves 'auto'). Embedded
@@ -31,21 +37,27 @@ async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
     executable scripts. PDFium's initial quick-preview work is serialized in the
     parent; all subsequent high-detail/prefetch native work is process-isolated.
     """
-    clipping = dict(source_path=path, output_text_clip=output_text_clip,
+    clipping = dict(source_path=path if remote_scheme(path) is None and
+                    Path(path).is_file() else None,
+                    output_text_clip=output_text_clip,
                     output_ansi_clip=output_ansi_clip, output_png_clip=output_png_clip,
                     output_geojson_clip=output_geojson_clip, clipboard=clipboard,
                     clip_source=clip_source, clip_overwrite=clip_overwrite)
     clip_options(**clipping)
     document = ImageDocument(path, series=series, page=page, frame=frame,
-                             pdf_max_dpi=pdf_max_dpi, background=background)
+                             pdf_max_dpi=pdf_max_dpi, background=background,
+                             group=group, z_index=z_index, t_index=t_index,
+                             input_format=input_format, s3_endpoint_url=s3_endpoint_url,
+                             s3_anonymous=s3_anonymous, source_name=source_name)
     if document.kind != "pdf" and pdf_cache_pages is not None:
         raise ValueError("--pdf-cache-pages applies only to PDF")
     if document.kind == "raster":
-        name = document.path.name
+        name = document.source_name
         if frame is not None:
             name += f" | frame {frame} (0-based)"
         with (
-            open_image(path, series=series, page=page, frame=frame, background=background) as image,
+            open_image(path, series=series, page=page, frame=frame, background=background,
+                       s3_endpoint_url=s3_endpoint_url, s3_anonymous=s3_anonymous) as image,
             ViewSession(image, name=name, cache_mib=cache_mib,
                         max_read_pixels=max_read_pixels, overview_cache_mib=overview_cache_mib,
                         overview_max_source_pixels=overview_max_source_pixels) as session,
@@ -82,3 +94,21 @@ async def view_file(path, *, series=0, page=None, frame=None, pdf_max_dpi=None,
         # an exception before the terminal application has been constructed.
         await navigation.stop()
         navigation.close()
+
+async def view_file(path, *, max_remote_mib=DEFAULT_MAX_REMOTE_MIB,
+                    s3_endpoint_url=None, s3_anonymous=False,
+                    input_format="auto", **kwargs) -> None:
+    """View a local or remote document, keeping bounded downloads alive through exit.
+
+    Unlike a per-page temp file, this one context survives PDF spawn/refinement,
+    page turns and native text selection. The underlying reader remains unchanged.
+    """
+    with resolve_input(path, max_remote_mib=max_remote_mib,
+                       s3_endpoint_url=s3_endpoint_url, s3_anonymous=s3_anonymous,
+                       input_format=input_format) as source:
+        label = kwargs.pop("source_name", None) or source.label
+        await _view_resolved_file(
+            source.path, source_name=label,
+            s3_endpoint_url=s3_endpoint_url, s3_anonymous=s3_anonymous,
+            input_format="zarr" if source.is_zarr else "auto", **kwargs,
+        )

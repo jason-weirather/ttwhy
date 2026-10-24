@@ -18,6 +18,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .image_pyramid import image_pyramid
+from .source_input import DEFAULT_MAX_REMOTE_MIB, is_zarr_input, remote_scheme, resolve_input, s3_options
 
 if TYPE_CHECKING:
     from omeify import Image
@@ -32,8 +33,12 @@ TIFF_HEADERS = (b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")
 PDF_LOCK = RLock()
 
 
-def image_kind(path: str | Path) -> Literal["tiff", "pdf", "raster"]:
+def image_kind(path: str | Path, *, input_format: str = "auto") -> Literal["tiff", "pdf", "raster", "zarr"]:
     """Select ingress from content, not a filename extension or decoder failure."""
+    if is_zarr_input(path, input_format=input_format):
+        return "zarr"
+    if remote_scheme(path):
+        raise ValueError("Remote ordinary files must be staged through resolve_input first")
     with Path(path).open("rb") as stream:
         header = stream.read(1024)
     if header[:4] in TIFF_HEADERS:
@@ -109,7 +114,7 @@ def _raster_pixels(path: Path, frame: int, background: tuple[int, int, int]) -> 
     except UnidentifiedImageError as error:
         raise ValueError(
             "Unsupported or unrecognized image. Supported: OME-TIFF, PNG, JPEG, WebP, "
-            "BMP, GIF, ICO, PPM/PGM/PBM, TGA, and PDF with ttwhy[pdf]. "
+            "BMP, GIF, ICO, PPM/PGM/PBM, TGA, and PDF with ttwhy-viewer[pdf]. "
             "SVG, EPS/PS, HEIC/AVIF and raw camera formats are not enabled."
         ) from error
     except Image.DecompressionBombError as error:
@@ -124,7 +129,7 @@ def _pdf_pixels(path: Path, page: int, dpi: float,
         except ImportError as error:
             raise RuntimeError(
                 "PDF viewing requires the optional PDF renderer: "
-                'python -m pip install "ttwhy[pdf]" '
+                'python -m pip install "ttwhy-viewer[pdf]" '
                 '(or python -m pip install -e ".[pdf]" in a checkout)'
             ) from error
         with pdfium.PdfDocument(path) as document:
@@ -152,7 +157,38 @@ def _pdf_pixels(path: Path, page: int, dpi: float,
 def open_image(
     path: str | Path, *, series: int = 0, page: int | None = None,
     frame: int | None = None, pdf_dpi: float | None = None,
+    background: Sequence[int] | None = None, group: str = "",
+    z_index: int | None = None, t_index: int | None = None,
+    max_remote_mib: float = DEFAULT_MAX_REMOTE_MIB, s3_endpoint_url: str | None = None,
+    s3_anonymous: bool = False, input_format: str = "auto",
+) -> Iterator["Image"]:
+    """Open a local image/OME-Zarr or bounded remote HTTP(S)/S3 file.
+
+    Remote Zarr is never downloaded as a single object: Omeify fetches only the
+    required metadata and chunks. An ordinary remote file is staged once under
+    max_remote_mib for the lifetime of this context. For interactive PDF work,
+    use view_file(), which keeps that staged file alive through all workers.
+    """
+    with resolve_input(path, max_remote_mib=max_remote_mib,
+                       s3_endpoint_url=s3_endpoint_url, s3_anonymous=s3_anonymous,
+                       input_format=input_format) as resource:
+        with _open_resolved_image(
+            resource.path, series=series, page=page, frame=frame, pdf_dpi=pdf_dpi,
+            background=background, group=group, z_index=z_index, t_index=t_index,
+            s3_endpoint_url=s3_endpoint_url, s3_anonymous=s3_anonymous,
+            input_format="zarr" if resource.is_zarr else "auto",
+        ) as image:
+            yield image
+
+
+@contextmanager
+def _open_resolved_image(
+    path: str | Path, *, series: int = 0, page: int | None = None,
+    frame: int | None = None, pdf_dpi: float | None = None,
     background: Sequence[int] | None = None,
+    group: str = "", z_index: int | None = None, t_index: int | None = None,
+    s3_endpoint_url: str | None = None, s3_anonymous: bool = False,
+    input_format: str = "auto",
 ) -> Iterator["Image"]:
     """Open one OME/SVS series, ordinary image/frame, or rendered PDF page.
 
@@ -174,7 +210,9 @@ def open_image(
     after close; drop those references to release it. TIFF errors never fall
     through to another decoder. Decoders are imported only when needed.
     """
-    path = Path(path)
+    kind = image_kind(path, input_format=input_format)
+    if kind != "zarr":
+        path = Path(path)
     series = _index(series, "series")
     if page is not None:
         page = _index(page, "page", minimum=1)
@@ -185,7 +223,17 @@ def open_image(
     ):
         raise ValueError("pdf_dpi must be positive and finite")
     matte = _background(background)
-    kind = image_kind(path)
+    if kind != "zarr" and (group or z_index is not None or t_index is not None):
+        raise ValueError("--group, --z-index and --t-index only apply to OME-Zarr")
+    if kind == "zarr":
+        if page is not None or frame is not None or pdf_dpi is not None or background is not None:
+            raise ValueError("OME-Zarr uses --series/--group/--z-index/--t-index, not PDF/raster options")
+        from omeify import OMEZarrReader
+        options = s3_options(s3_endpoint_url, anonymous=s3_anonymous) if remote_scheme(path) == "s3" else None
+        with OMEZarrReader(path, series=series, group=group, z=z_index, t=t_index,
+                           storage_options=options) as image:
+            yield image
+        return
     if kind == "tiff":
         if page is not None or frame is not None or pdf_dpi is not None or background is not None:
             raise ValueError(

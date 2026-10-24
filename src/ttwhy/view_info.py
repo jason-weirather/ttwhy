@@ -48,6 +48,13 @@ class ViewInfo:
         height, width = image.levels[0].spatial_shape
         levels = []
         for item in image.levels:
+            # A shifted pixel-edge grid cannot be mapped with scale alone.
+            # Until the general affine camera path carries offsets, omit that
+            # level from ALL display plans, including sampled/runtime overviews.
+            # The aligned base still gives an accurate, if possibly slower, view.
+            offset = item.offset_yx
+            if item.index and offset is not None and any(abs(v) > 1e-9 for v in offset):
+                continue
             ly, lx = item.spatial_shape
             scale = item.downsample_yx
             sy, sx = (height / ly, width / lx) if scale is None else scale

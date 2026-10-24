@@ -3,7 +3,9 @@
 A whole slide pathology image viewer in text; because sometimes the answer to “why is this in the terminal?” is “yes.”
 
 `ttwhy` is a library-first image-to-text renderer and a full-screen viewer for
-OME-TIFF, Aperio SVS, ordinary raster images, and PDF pages.
+OME-TIFF, Aperio SVS, OME-Zarr, ordinary raster images, and PDF pages. Local
+files and bounded HTTP(S)/S3 resources use the same interface; OME-Zarr reads
+only the requested metadata and encoded chunks.
 The CLI defaults to **auto**: two-color Unicode half-blocks when the terminal
 supports them, otherwise portable **simple** ASCII. **Detail** uses spatial Braille;
 **shape** emphasizes typographic strokes and texture. Explicit **blocks** remains
@@ -16,45 +18,33 @@ checks, not pixel measurements from the rendered text.
 
 ## Install
 
-Python **3.11 or newer** is required. ttwhy 0.2 requires **Omeify 0.21.0 or newer**
-(`omeify>=0.21.0`). It uses Omeify's public image API and does not vendor its code.
-The standard installation obtains Omeify from PyPI; a local Omeify checkout is not needed.
+Python **3.11+**. When published, the **PyPI distribution is `ttwhy-viewer`**, while the command
+and Python import remain **`ttwhy`**. Do not install the unrelated `ttwhy` PyPI
+project. This release requires `omeify>=0.22.1` for OME-Zarr reading and geometry.
+
+```bash
+python -m pip install 'ttwhy-viewer[pdf]'         # ordinary install with PDF viewing
+python -m pip install 'ttwhy-viewer[pdf,s3]'      # additionally enable native S3 reads
+
+ttwhy --version
+ttwhy photograph.png
+```
+
+From this source checkout:
 
 ```bash
 mamba env create -f environment.yml
 mamba activate ttwhy_env
-python -m pip install -e '.[dev]'
+python -m pip install -e '.[dev,pdf,s3]'
 python -m pip check
-
-omeify version
-ttwhy --version
-ttwhy slide.ome.tif
 ```
 
-The example environment uses Python 3.11 to exercise the supported minimum; newer
-Python versions are also supported. For the 0.21 transition and its validation limits,
-see [validation](docs/validation.md).
+Pillow supplies common image codecs; PDF is an optional pypdfium2 extra. OME-Zarr
+is handled by Omeify's normal Zarr/fsspec dependencies. S3 access uses an
+**optional** s3fs dependency and the standard AWS credential chain; access keys
+never belong in image URLs. No graphics server or GPU is needed.
 
-NumPy, SciPy, Click, Omeify, Pillow, coolname, prompt_toolkit, and wcwidth are direct runtime
-dependencies. PDF rendering is an optional extra:
-
-```bash
-python -m pip install -e '.[pdf]'           # checkout, including PDF support
-# Installed-package equivalent: python -m pip install 'ttwhy[pdf]'
-```
-
-Pillow supplies ordinary image codecs. The `pdf` extra adds pypdfium2, a Python
-binding with a native PDFium renderer. This is not a standard-library-only or
-all-pure-Python codec stack. There is no ImageMagick, Ghostscript, Poppler command,
-OpenCV, browser, or external converter. PDF refinement uses standard-library
-multiprocessing to run the same Python reader in isolated workers. Decoders are
-imported only when used; array rendering does not import Pillow, PDFium, Omeify, or the terminal UI.
-OME-TIFF and Aperio SVS still open regionally without an eager file-ingress
-scan or pyramid build. A small optional viewer overview can be prepared from
-regional reads before the first frame or during idle time.
-Ordinary files explicitly take the eager, RAM-only path described below.
-
-## Aperio SVS, ordinary images and PDF pages
+## OME-Zarr, remote images, SVS, and PDF pages
 
 ```bash
 ttwhy slide.svs                            # Aperio whole-slide RGB, stored pyramid
@@ -76,19 +66,75 @@ ttwhy animation.gif --frame 5               # raster frames are ZERO-based
 ttwhy illustration.webp --snapshot --ansi -o preview.ansi
 ```
 
+### Local and remote inputs
+
+```bash
+# Native OME-Zarr directory (NGFF 0.4, 0.5 or 0.6), regional reads:
+ttwhy /data/tonsil.ome.zarr --channel 0 --channel 2
+
+# HTTP(S) OME-Zarr store ROOT (serves metadata/chunks, not a ZIP):
+ttwhy 'https://images.example.org/tonsil.ome.zarr' --channel 0
+
+# S3 OME-Zarr; install ttwhy-viewer[s3] and configure AWS credentials/role:
+ttwhy 's3://my-bucket/tonsil.ome.zarr' --channel 1
+# For an anonymously readable S3 bucket:
+ttwhy 's3://public-bucket/tonsil.ome.zarr' --s3-anonymous
+
+# Local S3-compatible service (e.g. MinIO):
+ttwhy 's3://local-bucket/demo.ome.zarr' --s3-endpoint-url http://localhost:9000
+
+# An HTTP(S)/S3 ordinary image or PDF is boundedly downloaded once, then decoded:
+ttwhy 'https://images.example.org/example.png'
+ttwhy 's3://local-bucket/book.pdf' --page 2
+
+# Explicit store type for an extensionless HTTP(S)/S3 Zarr root:
+ttwhy 'https://images.example.org/datasets/123' --input-format zarr
+
+# Explicit plane/group for a multidimensional/collection Zarr:
+ttwhy /data/experiment.zarr --group A/1/0 --z-index 2 --t-index 0
+```
+
+**Remote single files:** by default, only the first **128 MiB** is permitted.
+`--max-remote-mib 512` explicitly raises the limit, including for remote PDF,
+OME-TIFF, and SVS files. The file is staged in a temporary directory, **once
+for an interactive session**, and removed on exit after all PDF workers have
+stopped. Downloads have a finite timeout; a remote TIFF/SVS is not a streaming
+whole-slide reader, even if its local form supports pyramidal region access.
+Local files are not restricted by this byte limit. Remote Zarr bypasses the
+whole-file limit but still consumes per-chunk requests and storage-provider
+charges; existing render and overview budgets still apply. The download cap is
+**not** a cap on decoded image/PDF RAM.
+
+For S3, `--s3-endpoint-url` takes a plain HTTP(S) origin (or set
+`AWS_ENDPOINT_URL_S3`). `AWS_PROFILE`, IAM roles, default credentials, and
+public anonymous access are handled by the standard s3fs credential configuration.
+Add `--s3-anonymous` for public, unsigned S3 reads. Do not embed keys into URLs. HTTP single-file URLs may contain signed query
+parameters; they are never shown in the title or stored with clips. OME-Zarr
+store roots must not contain query strings and should expose consistent objects;
+remote stores are read-only. HTTP(S) servers require ordinary GET access to
+metadata/chunk paths (and byte-range support for sharded input).
+
+Local/remote Zarr keeps TIFF-style **zero-based series navigation**. `--group`
+chooses an image subtree; Z and T indices are optional only for singleton axes.
+Categorical label visualization remains unsupported. For pyramid levels with
+nonzero pixel-edge offsets, ttwhy currently **skips the shifted level** and
+uses an aligned one rather than silently misplacing tissue and GeoJSON positions.
+This can make some Zarr views slower. The base level always remains available.
+
 These inputs share the existing wheel/keyboard zoom, pan, contrast, rendering
 modes, sidebar, and snapshot workflow. `auto` still chooses color half-blocks on
 capable terminals and simple text otherwise. There is no second viewer.
 
 | Input | Behavior in this pass |
 |---|---|
-| OME-TIFF | Existing Omeify OMETiffReader, stored levels, and regional decoding, unchanged. |
+| OME-TIFF | Existing Omeify OMETiffReader, stored levels, regional decoding; remote files download under the explicit cap. |
+| OME-Zarr | Omeify 0.4/0.5/0.6 reader: local/HTTP(S)/S3 store-root, regional chunks, channels and declared series; shifted levels are skipped. |
 | Aperio SVS (`.svs`, case-insensitive) | Omeify AperioSVSReader, native RGB and supplied pyramid, regional decoding; optional bounded runtime overview cache. |
 | PNG, JPEG/JPG, WebP, BMP, TGA | Decode once; retain the base raster and an in-memory pyramid. |
 | GIF, APNG, animated WebP | Frame 0 by default, or select `--frame N`; no animation playback. |
 | ICO | View the decoder's default icon representation. |
 | PPM, PGM, PBM | Ordinary portable raster formats through Pillow. |
-| PDF, with `ttwhy[pdf]` | Navigate pages; quick RGB preview followed by sharper, RAM-only pyramids. |
+| PDF, with `ttwhy-viewer[pdf]` | Navigate pages; quick RGB preview followed by sharper, RAM-only pyramids. |
 
 An SVS is one logical RGB channel, not three independent stain channels.
 Omeify reads Aperio `MPP` calibration when available and exposes stored reduced
@@ -96,6 +142,10 @@ levels. The `--series` control can also visit associated series (for example a
 thumbnail) when the reader supports their pixel layout. GeoJSON coordinates
 remain relative to the selected series' own base pixel grid.
 
+OME-Zarr is recognized as a local store directory (containing NGFF/Zarr root
+metadata, or named `.zarr`) or by the `.zarr` suffix of a remote URL. For other
+remote Zarr store names, specify `--input-format zarr`. Ordinary remote files
+are classified from their downloaded signature, not their suffix.
 The file signature first distinguishes TIFF, PDF, and raster data. Within TIFF,
 the `.svs` suffix selects Omeify's Aperio reader, which validates the actual SVS
 format; other TIFFs continue through Omeify's OME-TIFF reader. Renaming an OME-TIFF
@@ -169,7 +219,8 @@ cancels obsolete refinement/prefetch jobs, and prioritizes the new page. Cached
 pages open at their best ready resolution. `--pdf-cache-pages 1` disables neighbor
 prefetch; a limit of 2 prefetches one neighbor, favoring the next page when available. This
 page-count limit is separate from `--cache-mib`, which still bounds small resampled
-previews, not decoded pages or construction scratch. No disk cache is written.
+previews, not decoded pages or construction scratch. No persistent image cache is written (temporary downloads of remote PDFs are
+removed after the viewing session).
 
 Recoverable high-detail failures leave the usable lower-resolution view and show
 an error. Quitting cancels and reaps the PDF processes and drains their private
@@ -926,15 +977,14 @@ source strip or tile can exceed that target. A poorly tiled source can still be 
 
 ## Current scope
 
-The CLI supports the ordinary image and PDF formats listed above, plus **Aperio
+The CLI supports the OME-Zarr and ordinary image/PDF formats listed above, plus **Aperio
 SVS** (RGB `.svs` files through Omeify's Aperio reader) and tiled or
 striped **OME-TIFF**, including stored SubIFD pyramids, grayscale, RGB, and planar
 multi-marker images. Python sessions accept an open Omeify intensity or RGB Image,
 including array and procedural backends. PDF pages and TIFF series can be navigated
 in-app; `--page` and `--series` choose the initial selection. Raster `--frame`
-selection remains startup-only. Non-singleton Z/T stacks, label-specific
-categorical coloring, raw vendor formats, OME-Zarr, remote
-URLs, persistent annotation editing, segmentation overlays, saved view settings, custom colors in
+selection remains startup-only. Non-singleton TIFF Z/T stacks and unsupported Zarr plane selections, label-specific
+categorical coloring, raw vendor formats, persistent annotation editing, segmentation overlays, saved view settings, custom colors in
 the sidebar, and ICC-managed color are not implemented. Explicit categorical LabelImages are rejected rather than assigning continuous
 brightness to arbitrary object IDs. OME-TIFF alone does not declare label semantics;
 CLI users must not interpret numeric label brightness as expression. The reader fails clearly

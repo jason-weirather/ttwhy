@@ -15,6 +15,7 @@ from ..selection_geometry import union_bounds
 from ..image_clip import clipboard_png, write_png_clip
 from ..png_clip import render_clip_png
 from ..pdf_text import extract_pdf_text
+from ..source_input import remote_scheme
 from ..text_clip import (
     CLIPBOARD_MODES, CLIP_SOURCES, ClipboardDelivery, clipboard_delivery,
     validate_clip_path, write_text_clip,
@@ -66,7 +67,9 @@ class ClipController:
                  output_ansi_clip=None, output_png_clip=None, output_geojson_clip=None,
                  clipboard="auto", clip_source="auto", clip_overwrite=True) -> None:
         if source_path is None and viewer.navigation is not None:
-            source_path = viewer.navigation.document.path
+            candidate = viewer.navigation.document.path
+            source_path = (candidate if remote_scheme(candidate) is None and
+                           Path(candidate).is_file() else None)
         clip_options(source_path=source_path, output_text_clip=output_text_clip,
                      output_ansi_clip=output_ansi_clip, output_png_clip=output_png_clip,
                      output_geojson_clip=output_geojson_clip, clipboard=clipboard,

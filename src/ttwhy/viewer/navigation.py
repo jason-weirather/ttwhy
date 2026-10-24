@@ -255,7 +255,7 @@ class DocumentNavigation:
             viewer.frame, viewer.cell_lines = None, []
             viewer.viewport = None
             viewer.canvas._drag = None
-            if self.document.kind == "tiff":
+            if self.document.kind in {"tiff", "zarr"}:
                 viewer.selected_channels = (0,)
                 viewer.focused_channel = 0
                 viewer.channel_control.first_channel = 0

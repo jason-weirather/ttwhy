@@ -333,7 +333,7 @@ async def test_ascii_and_color_cycles_preserve_camera_ids_masks_and_use_no_new_r
         assert not viewer.clipping.ascii_preview
         assert viewer.clipping.selection.frame is original_frame
         await send(pipe, "m", viewer, task)
-        assert viewer.clipping.preview_modes.color_mode == "detail"
+        assert viewer.clipping.preview_modes.color_mode == "shape"
         await send(pipe, "M", viewer, task)
         assert viewer.clipping.preview_modes.label == "ASCII bold"
         assert viewer.viewport == view and viewer.canvas_size == size
