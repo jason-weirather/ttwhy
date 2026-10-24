@@ -70,3 +70,34 @@ def test_default_terminal_depth_uses_toolkit_not_assumed_truecolor(monkeypatch):
     monkeypatch.setattr('ttwhy.terminal_capabilities.create_output', lambda: Output())
     assert configured_color_depth() is None
     assert available_color_depth() == ColorDepth.DEPTH_8_BIT
+
+
+@pytest.mark.parametrize("flag,expected", [([], False), (["--no-color"], False),
+                                            (["--color"], True)])
+def test_cli_one_bit_environment_initializes_renderer_color(tmp_path, monkeypatch, flag, expected):
+    """Automatic fallback must set the renderer flag, not only discard ANSI SGR."""
+    from types import SimpleNamespace
+    from click.testing import CliRunner
+    from PIL import Image
+    import ttwhy.cli as cli
+    import ttwhy.viewer.file_viewer as file_viewer
+
+    path = tmp_path / "mono.png"
+    Image.new("RGB", (4, 4), (100, 140, 190)).save(path)
+    observed = []
+
+    async def fake_view_file(_path, **kwargs):
+        observed.append(kwargs)
+
+    monkeypatch.setattr(file_viewer, "view_file", fake_view_file)
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setattr(cli, "sys", SimpleNamespace(
+        stdin=SimpleNamespace(isatty=lambda: True),
+        stdout=SimpleNamespace(isatty=lambda: True, encoding="utf-8"),
+    ))
+    result = CliRunner().invoke(cli.main, [str(path), *flag])
+    assert result.exit_code == 0, result.output
+    assert len(observed) == 1
+    assert observed[0]["color"] is expected
+    assert observed[0]["mode"] == "simple"

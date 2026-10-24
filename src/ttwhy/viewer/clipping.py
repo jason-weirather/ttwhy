@@ -250,7 +250,7 @@ class ClipController:
             self.move(target[0] - x, target[1] - y, extend=extend)
 
     def cycle_preview(self, family: str) -> None:
-        """m/M: cycle frozen color/ASCII artwork without reading the image again.
+        """m/M: cycle frozen artwork/ASCII without reading the image again.
 
         Only the glyphs change, not cell positions, selected area identities, or
         the browsing renderer. A finer style may upscale the cached sample grid.
@@ -293,7 +293,7 @@ class ClipController:
             return
         self.preview_modes = candidate
         self.ascii_preview = candidate.family == "ascii"
-        hint = "M: next | m: color" if self.ascii_preview else "m: next | M: ASCII"
+        hint = "M: next | m: art" if self.ascii_preview else "m: next | M: ASCII"
         self.notify(f"{candidate.label} | {hint}")
 
     def _areas(self):

@@ -260,7 +260,7 @@ then removes its most recent vertex.
 | `s` / `v` | Switch to the other shape tool, retaining existing areas. The current tool's key exits selection. |
 | `[` / `]`, or PageUp / PageDown | Activate the previous / next area. |
 | `n`; Delete | Rename / remove the active area. |
-| `m` / `M` | Resume/cycle colored artwork or enter/cycle strict ASCII styles. Uses cached samples without moving any area. |
+| `m` / `M` | Resume/cycle artwork (colored or monochrome) or enter/cycle strict ASCII. Uses cached samples without moving any area. |
 | Escape; **Esc** button | Clear this selection session and resume viewing. |
 | `q` or Ctrl-Q | Quit. Ctrl-C during a path/numeric prompt cancels only that prompt. |
 
@@ -416,22 +416,30 @@ These exports are not a redaction or deidentification feature.
 
 ### Plain ASCII and full-terminal viewing
 
-**`m`** selects colored terminal artwork (detail / shape / simple / blocks),
-then cycles to the next colored style each time. **`M`** selects strictly ASCII,
-then cycles through three density ramps: **classic**, **fine**, and **bold**.
-Pressing the *other* key returns to its last-used style first, rather than
-advancing unexpectedly. For example, `m m M M m` returns to the second colored
-style; another `m` advances it. Colored simple retains its configured ramp.
+**`m`** selects the artwork family: **detail** (Braille), **shape** (Unicode
+strokes), **simple** (density), and **blocks** (two-color half-blocks). Press
+**`t`** to toggle the family's remembered color preference. In monochrome,
+**`m` cycles detail / shape / simple**, skipping blocks, which require color.
+**`M`** separately selects strictly monochrome ASCII density ramps: **classic**,
+**fine**, and **bold**. `M` never turns on color or selects Unicode glyphs.
+
+Switching between `m` and `M` first restores that family's last-used style;
+subsequent presses advance. Switching to `M` does not change the remembered
+artwork color setting, so `m` returns to either colored or monochrome artwork
+as you left it. Pressing `t` while in `M` updates the remembered `m` preference
+but leaves the strict ASCII screen unchanged. **`b`** still temporarily previews
+colored blocks and restores the exact previous style, even a monochrome Braille
+or strict ASCII ramp.
 
 The status identifies the current ASCII style, and the footer keeps the short
-`m:color M:ASCII` hint visible. Both keys also work while selecting; the frozen
+`m:art M:ASCII` hint visible. Both keys also work while selecting; the frozen
 cached samples are redrawn, not reread. Area coordinates, names, IDs, and the
 selection's overall bounding box stay unchanged. If a high-detail style is
 selected from a coarser cached preview, its apparent detail is limited by those
 existing samples. Text and ANSI exports in an ASCII preview contain only
 ordinary ASCII characters with space-padded gaps, and no color escapes. Press
-`m` to return to colored artwork. Leaving selection does not change the normal
-viewer's rendering mode.
+`m` to return to the remembered artwork mode and color. Leaving selection
+does not change the normal viewer's rendering mode.
 
 **`f`** toggles true full-terminal image viewing. **f** or **Escape** restores the
 controls, with no permanent corner hint or reserved row. Selection and its copy
@@ -538,16 +546,16 @@ still be split by tmux; ttwhy does not implement a shell or manage tmux sessions
 | PageUp / PageDown with sidebar focus | Move one visible page through the channel list, not PDF pages/OME series |
 | Home / End with sidebar focus | Focus the first / last channel |
 | Enter with sidebar focus | Solo the focused channel, including channels above index 8 |
-| `m` / `M`; `f` | Cycle colored artwork / strict ASCII styles; toggle full-terminal view |
+| `m` / `M`; `f` | Cycle artwork (color or mono) / strict ASCII ramps; toggle full-terminal view |
 | Space; click a sidebar channel | Toggle the focused channel in the composite |
 | `1` through `9` | Solo channels 0 through 8 |
 | `l` / `u` / `g` | Enter the focused channel's lower / upper limit / gamma |
 | `h`; click a color swatch | Edit the focused intensity channel's color (hex/name/default); swatch clicks focus without toggling the channel |
 | Enter; Escape or Ctrl-C while editing | Apply; cancel numeric/color entry |
 | `a` | Estimate and lock contrast from the focused channel's visible preview |
-| `m` | Enter colored artwork, then cycle detail / shape / simple / blocks |
-| `b` | Toggle half-block preview; restore the previous text mode and color setting |
-| `t`; `i` | Toggle color without leaving the current text mode; reverse ink density |
+| `m` | Enter/cycle detail / shape / simple; include blocks only when color is on |
+| `b` | Temporarily preview colored blocks; restore the previous style/color, including strict ASCII |
+| `t`; `i` | Toggle the `m` family's remembered color (while `M` stays ASCII); reverse ink density |
 | `?`; `q` or Ctrl-Q | Toggle key help; quit |
 
 When the sidebar has keyboard focus, Up/Down selects its focused channel. At least
@@ -577,7 +585,12 @@ blocks only with a TTY, an encoding that supports `▀`, and at least 256 colors
 them more faithfully. TERM=dumb/unknown, limited color depth, or an unsupported
 encoding selects `simple`. The terminal cannot reliably report installed glyphs;
 if your font lacks `▀`, explicitly choose `--mode simple`. No active terminal
-probes are sent. Explicit `--mode blocks` overrides the heuristic.
+probes are sent. Explicit `--mode blocks` overrides the heuristic. In interactive viewing,
+`NO_COLOR=1` or a reported one-bit terminal also initializes the actual renderer
+in monochrome, rather than merely hiding terminal color escapes. Consequently,
+pressing `m` cycles only detail/shape/simple until `t` enables artwork color.
+Explicit `--no-color` has the same monochrome cycling behavior. A terminal that
+cannot emit colors will still suppress color even if the user presses `t`.
 
 In snapshots, plain `--snapshot` with auto produces **simple** text, while
 `--snapshot --ansi` with auto produces truecolor blocks. Explicit `--no-color`
@@ -668,7 +681,9 @@ normal read. Background overview preparation remains separate work.
 These are **intensity-channel pseudocolors**, not a color-balance control for
 native RGB images, photographs, or PDFs. RGB keeps its original three samples;
 `h` explains that distinction instead of tinting the picture. Color entry does
-not switch a monochrome/ASCII view into color; `m` restores colored artwork.
+not switch a monochrome/ASCII view into color. Press `t` to enable artwork
+color, then `m` to return from a strict `M` ramp. Color remains independent
+of glyph selection.
 Controls remain frozen while selecting; subsequent ANSI and PNG clips use the
 chosen displayed colors, including when cycling selection preview styles.
 

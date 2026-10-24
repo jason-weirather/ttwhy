@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import click
+from prompt_toolkit.output import ColorDepth
 
 from . import __version__
 from .channel_colors import apply_channel_colors, channel_palette, parse_color
@@ -83,7 +84,7 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
               help="auto: colored half-blocks when supported, simple otherwise; "
                    "detail/shape: text art; simple/ascii: legacy density; blocks: half-blocks.")
 @click.option("--color/--no-color", default=None,
-              help="Use RGB/pseudocolor (auto: on in the viewer, off for plain snapshots).")
+              help="Use RGB/pseudocolor (auto: terminal-aware in viewer; off for plain snapshots).")
 @click.option("--invert/--no-invert", default=None,
               help="Reverse text ink density (auto: on for RGB, off for fluorescence).")
 @click.option("--cell-aspect", type=click.FloatRange(min=0, min_open=True), default=2.0,
@@ -150,7 +151,7 @@ def main(
     Wheel/+/- zoom, arrows or mouse drag pan, c toggles the channel panel.
     PgUp/PgDn or [/] flip PDF pages/OME series; p jumps to a specific page/series.
     l/u/g edit limits and gamma; h edits channel color.
-    m cycles colored modes; M cycles ASCII ramps; b toggles blocks; ? shows help.
+    m cycles artwork modes (color or mono); M cycles strict ASCII; t toggles color.
     s selects a rectangle; v starts a polygon; j copies GeoJSON; J saves it.
     Selection: y/Y text, i/I PNG, t/T ANSI, j/J GeoJSON (copy/save).
     """
@@ -199,13 +200,19 @@ def main(
                     raise FileExistsError(f"Snapshot destination already exists: {output_path}")
                 if not output_path.parent.is_dir():
                     raise FileNotFoundError(f"Output directory does not exist: {output_path.parent}")
+            depth = None if snapshot else available_color_depth()
             use_color = (not snapshot or ansi) if color is None else color
+            # NO_COLOR and advertised one-bit terminals are genuinely monochrome,
+            # not merely a colored renderer whose SGR happens to get suppressed.
+            # The m cycle must therefore skip color-dependent half-blocks too.
+            if not snapshot and color is None and depth == ColorDepth.DEPTH_1_BIT:
+                use_color = False
             if mode == "auto":
                 mode = resolve_auto_mode(
                     snapshot=snapshot, ansi=ansi, color=use_color,
                     is_tty=sys.stdout.isatty(), encoding=sys.stdout.encoding,
                     term=os.environ.get("TERM"),
-                    depth=None if snapshot else available_color_depth(),
+                    depth=depth,
                 )
             window = None if lower is None else IntensityWindow(lower, upper)
             viewport = None if region is None else Viewport(*region)

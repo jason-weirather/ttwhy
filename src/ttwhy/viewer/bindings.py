@@ -170,10 +170,7 @@ def create_bindings(viewer: "Viewer") -> KeyBindings:
 
     @bindings.add("t", filter=browsing)
     def color(event: KeyPressEvent) -> None:
-        color = not viewer.renderer.color
-        mode = (viewer.text_mode if not color and viewer.renderer.mode == "blocks"
-                else viewer.renderer.mode)
-        viewer.change_renderer(color=color, mode=mode)
+        viewer.toggle_color()
 
     @bindings.add("m", filter=idle)
     def mode(event: KeyPressEvent) -> None:

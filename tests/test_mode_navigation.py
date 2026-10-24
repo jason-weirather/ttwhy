@@ -44,13 +44,16 @@ def test_custom_legacy_ramp_and_renderer_flags_are_preserved():
     initial = TextRenderer(mode="simple", color=False, invert=True, ramp=" .#",
                            cell_aspect=1.5)
     state = ModeNavigation.from_renderer(initial)
+    # Even monochrome simple is initially an m style, not automatically M.
+    assert state.label == "simple" and state.family == "color" and not state.color_enabled
+    state.advance_ascii()
     assert state.label == "ASCII custom"
     state.advance_ascii()
     assert state.label == "ASCII fine"
     state.advance_color()
     restored = state.make_renderer(initial)
     assert (restored.mode, restored.color, restored.invert, restored.ramp,
-            restored.cell_aspect) == ("simple", True, True, " .#", 1.5)
+            restored.cell_aspect) == ("simple", False, True, " .#", 1.5)
     state.advance_ascii()
     state.advance_ascii()
     state.advance_ascii()
@@ -82,6 +85,237 @@ def test_viewer_methods_respect_independent_families_without_source_reads():
     viewer.cycle_mode()
     assert viewer.renderer.mode == "detail" and viewer.renderer.color
     assert len(changes) == 6
+
+
+
+
+@pytest.mark.parametrize("initial_mode", ("detail", "shape", "simple"))
+def test_monochrome_artwork_cycles_without_blocks_and_remembers_ascii(initial_mode):
+    initial = TextRenderer(mode=initial_mode, color=False)
+    state = ModeNavigation.from_renderer(initial)
+    assert state.family == "color" and state.color_mode == initial_mode
+    assert not state.color_enabled
+    observed = []
+    for _ in range(6):
+        state.advance_color()
+        renderer = state.make_renderer(initial)
+        observed.append(renderer.mode)
+        assert not renderer.color
+        assert renderer.mode != "blocks"
+        assert renderer.render(np.linspace(0, 1, 100).reshape(10, 10),
+                               columns=10, rows=10).foreground is None
+    expected = ("detail", "shape", "simple")
+    assert tuple(observed[:3]) == tuple(expected[(expected.index(initial_mode) + i + 1) % 3]
+                                       for i in range(3))
+    state.advance_ascii()
+    assert state.label == "ASCII classic" and not state.make_renderer(initial).color
+    state.advance_ascii()
+    assert state.label == "ASCII fine"
+    state.advance_color()
+    assert state.color_mode == initial_mode and not state.color_enabled
+    assert state.make_renderer(initial).mode == initial_mode
+    state.advance_ascii()
+    assert state.label == "ASCII fine"
+
+
+def test_color_preference_is_separate_from_ascii_and_blocks_is_color_only():
+    initial = TextRenderer(mode="blocks", color=True)
+    state = ModeNavigation.from_renderer(initial)
+    state.advance_ascii()
+    assert state.label == "ASCII classic"
+    state.set_color(False, fallback_mode="shape")
+    assert state.make_renderer(initial).mode == "simple"
+    assert not state.make_renderer(initial).color
+    assert state.color_mode == "shape"  # Monochrome fallback instead of blocks.
+    state.advance_color()
+    assert (state.make_renderer(initial).mode, state.make_renderer(initial).color) == (
+        "shape", False)
+    state.advance_color()
+    assert state.make_renderer(initial).mode == "simple"
+    state.set_color(True)
+    assert state.make_renderer(initial).color
+    assert state.make_renderer(initial).mode == "simple"
+    state.advance_color()
+    assert state.make_renderer(initial).mode == "blocks"
+
+
+def _dummy_navigation_viewer(initial):
+    class Session:
+        info = SimpleNamespace(channels=("A",), is_rgb=False)
+
+        def _select_channels(self, channels):
+            return tuple(channels)
+
+    viewer = Viewer(Session(), renderer=initial)
+    viewer.application = SimpleNamespace(invalidate=lambda: None)
+    changes = []
+    viewer._set_viewport = lambda *args, **kwargs: changes.append(
+        (viewer.renderer.mode, viewer.renderer.color, viewer.renderer.ramp))
+    return viewer, changes
+
+
+def test_viewer_t_and_m_M_preserve_monochrome_and_remember_color_preference():
+    viewer, changes = _dummy_navigation_viewer(TextRenderer(mode="blocks"))
+    viewer.toggle_color()
+    assert (viewer.renderer.mode, viewer.renderer.color) == ("detail", False)
+    viewer.cycle_mode()
+    assert (viewer.renderer.mode, viewer.renderer.color) == ("shape", False)
+    viewer.cycle_mode()
+    assert (viewer.renderer.mode, viewer.renderer.color) == ("simple", False)
+    viewer.cycle_mode()
+    assert (viewer.renderer.mode, viewer.renderer.color) == ("detail", False)
+    viewer.cycle_ascii()
+    viewer.cycle_ascii()
+    assert viewer.mode_navigation.label == "ASCII fine"
+    assert viewer.renderer.ramp == viewer.mode_navigation.ascii_variants[1][1]
+    count = len(changes)
+    viewer.toggle_color()  # Change the remembered m preference, not strict ASCII.
+    assert len(changes) == count
+    assert viewer.mode_navigation.color_enabled
+    assert viewer.renderer.mode == "simple" and not viewer.renderer.color
+    assert viewer.renderer.ramp == viewer.mode_navigation.ascii_variants[1][1]
+    viewer.cycle_mode()
+    assert (viewer.renderer.mode, viewer.renderer.color) == ("detail", True)
+    viewer.cycle_ascii()
+    assert viewer.mode_navigation.label == "ASCII fine"
+    viewer.cycle_mode()
+    assert viewer.renderer.mode == "detail" and viewer.renderer.color
+    viewer.toggle_color()
+    assert viewer.renderer.mode == "detail" and not viewer.renderer.color
+    viewer.cycle_mode()
+    assert viewer.renderer.mode == "shape" and not viewer.renderer.color
+
+
+def test_ascii_inversion_does_not_reset_ramp_or_remembered_artwork():
+    viewer, _ = _dummy_navigation_viewer(TextRenderer(mode="shape", color=False))
+    viewer.cycle_ascii()
+    viewer.cycle_ascii()
+    ramp = viewer.renderer.ramp
+    viewer.change_renderer(invert=True)
+    assert viewer.mode_navigation.label == "ASCII fine"
+    assert viewer.renderer.ramp == ramp and viewer.renderer.invert
+    assert not viewer.mode_navigation.color_enabled
+    assert viewer.mode_navigation.color_mode == "shape"
+    viewer.cycle_mode()
+    assert viewer.renderer.mode == "shape" and not viewer.renderer.color
+    assert viewer.renderer.invert
+
+
+
+
+def test_invert_strict_ascii_does_not_overwrite_custom_artwork_ramp():
+    viewer, _ = _dummy_navigation_viewer(TextRenderer(
+        mode="simple", color=False, ramp=" .#", invert=False))
+    viewer.cycle_ascii()
+    viewer.cycle_ascii()
+    assert viewer.mode_navigation.label == "ASCII fine"
+    viewer.change_renderer(invert=True)
+    assert viewer.mode_navigation.label == "ASCII fine"
+    viewer.cycle_mode()
+    assert viewer.renderer.mode == "simple" and not viewer.renderer.color
+    assert viewer.renderer.ramp == " .#" and viewer.renderer.invert
+
+def test_b_preview_restores_mono_art_and_strict_ascii_without_losing_preference():
+    viewer, _ = _dummy_navigation_viewer(TextRenderer(mode="shape", color=False))
+    viewer.toggle_blocks()
+    assert viewer.renderer.mode == "blocks" and viewer.renderer.color
+    viewer.toggle_blocks()
+    assert viewer.renderer.mode == "shape" and not viewer.renderer.color
+    assert viewer.mode_navigation.family == "color" and not viewer.mode_navigation.color_enabled
+    viewer.cycle_ascii()
+    viewer.cycle_ascii()
+    before = viewer.renderer.ramp
+    viewer.toggle_blocks()
+    assert viewer.renderer.mode == "blocks" and viewer.renderer.color
+    viewer.toggle_blocks()
+    assert viewer.renderer.mode == "simple" and not viewer.renderer.color
+    assert viewer.renderer.ramp == before
+    assert viewer.mode_navigation.label == "ASCII fine"
+    viewer.cycle_mode()
+    assert viewer.renderer.mode == "shape" and not viewer.renderer.color
+    viewer.toggle_blocks()
+    viewer.cycle_mode()  # Abandon the temporary b preview and cycle normally.
+    assert viewer.renderer.mode == "simple" and not viewer.renderer.color
+    viewer.toggle_blocks()
+    assert viewer.renderer.mode == "blocks" and viewer.renderer.color
+    viewer.toggle_blocks()
+    assert viewer.renderer.mode == "simple" and not viewer.renderer.color
+
+
+
+
+def test_t_during_temporary_blocks_uses_underlying_artwork_preference():
+    viewer, _ = _dummy_navigation_viewer(TextRenderer(mode="shape", color=False))
+    viewer.toggle_blocks()
+    viewer.toggle_color()
+    assert viewer.renderer.mode == "shape" and viewer.renderer.color
+    assert viewer._blocks_restore is None
+    viewer.cycle_ascii()
+    viewer.cycle_ascii()
+    assert viewer.mode_navigation.label == "ASCII fine"
+    viewer.toggle_blocks()
+    assert viewer.renderer.mode == "blocks"
+    viewer.toggle_color()
+    assert viewer.mode_navigation.label == "ASCII fine"
+    assert viewer.renderer.mode == "simple" and not viewer.renderer.color
+    assert not viewer.mode_navigation.color_enabled
+    viewer.cycle_mode()
+    assert viewer.renderer.mode == "shape" and not viewer.renderer.color
+
+def test_monochrome_frozen_selection_preview_has_no_colors_or_source_reads(monkeypatch):
+    from ttwhy.viewport import Viewport
+    pixels = np.linspace(0, 1, 20 * 32, dtype=np.float32).reshape(20, 32)
+    initial = TextRenderer(mode="detail", color=False)
+    frame = initial.render(pixels, rows=5, columns=8)
+
+    class Session:
+        info = SimpleNamespace(channels=("A",), shape=(20, 32), is_rgb=False)
+
+        def _select_channels(self, channels):
+            return tuple(channels)
+
+        def prepare_styles(self, *args, **kwargs):
+            from ttwhy import ChannelStyle, IntensityWindow
+            return (ChannelStyle(IntensityWindow(0, 1)),)
+
+        def render(self, samples, *, styles, renderer, rows, columns):
+            return renderer.render(pixels, rows=rows, columns=columns)
+
+        def sample(self, *args, **kwargs):
+            raise AssertionError("Frozen selection must not read source pixels")
+
+    viewer = Viewer(Session(), renderer=initial)
+    viewer.application = SimpleNamespace(
+        layout=SimpleNamespace(focus=lambda _: None), invalidate=lambda: None)
+    viewer.canvas_size = (8, 5)
+    viewer.viewport = Viewport(0, 0, 32, 20)
+    viewer.frame = frame
+    viewer.cell_lines = terminal_lines(frame)
+    viewer.generation = viewer.displayed_generation = 1
+    viewer.samples = SimpleNamespace(plan=SimpleNamespace(channels=(0,)))
+    viewer.windows = [None]
+    monkeypatch.setattr("ttwhy.annotation_identity.random_name", lambda: "quiet-small-otter")
+    clip = viewer.clipping
+    clip.start()
+    clip.selection.start_drag(1, 1)
+    clip.selection.drag(4, 3, finish=True)
+    before = clip.selection.snapshots()
+    clip.cycle_preview("color")
+    assert clip.preview_modes.color_mode == "shape"
+    assert clip.selection.frame.foreground is None
+    clip.cycle_preview("color")
+    assert clip.preview_modes.color_mode == "simple"
+    assert clip.selection.frame.foreground is None
+    clip.cycle_preview("color")
+    assert clip.preview_modes.color_mode == "detail"
+    assert clip.selection.frame.foreground is None
+    clip.cycle_preview("ascii")
+    assert clip.ascii_preview and clip.selection.frame.to_text().isascii()
+    clip.cycle_preview("color")
+    assert clip.selection.frame is frame
+    assert clip.selection.snapshots() == before
+    assert viewer.renderer is initial and not viewer.renderer.color
+    clip.end()
 
 
 @pytest.mark.parametrize("kind", ("rectangle", "polygon"))

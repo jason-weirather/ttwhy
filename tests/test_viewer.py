@@ -12,7 +12,7 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from omeify import OMETiffReader
-from ttwhy import ViewSession, open_image
+from ttwhy import TextRenderer, ViewSession, open_image
 from ttwhy.viewer import Viewer
 
 
@@ -98,6 +98,49 @@ async def test_keyboard_zoom_pan_panel_and_modes(mif):
         assert not viewer.panel_visible
         assert viewer.frame.shape == (15, 50)
 
+
+
+
+async def test_monochrome_art_cycle_and_strict_ascii_color_preference(mif):
+    """Actual prompt_toolkit keys: t changes a preference, not the m/M family."""
+    async with running(mif[0], renderer=TextRenderer(mode="detail", color=False)) as (
+        viewer, pipe, _, task,
+    ):
+        initial_camera = viewer.viewport
+        initial_windows = tuple(viewer.windows)
+        assert not viewer.renderer.color and viewer.renderer.mode == "detail"
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "shape" and not viewer.renderer.color
+        assert viewer.frame.foreground is None
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "simple" and not viewer.renderer.color
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "detail" and not viewer.renderer.color
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII classic"
+        assert viewer.frame.to_text().isascii() and viewer.frame.foreground is None
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII fine"
+        fine = viewer.renderer.ramp
+        await send(pipe, "i", viewer, task)
+        assert viewer.renderer.ramp == fine and viewer.renderer.invert
+        await send(pipe, "t", viewer, task)
+        assert viewer.mode_navigation.color_enabled
+        assert viewer.renderer.ramp == fine and not viewer.renderer.color
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "detail" and viewer.renderer.color
+        await send(pipe, "t", viewer, task)
+        assert viewer.renderer.mode == "detail" and not viewer.renderer.color
+        await send(pipe, "M", viewer, task)
+        assert viewer.mode_navigation.label == "ASCII fine"
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "detail" and not viewer.renderer.color
+        await send(pipe, "b", viewer, task)
+        assert viewer.renderer.mode == "blocks" and viewer.renderer.color
+        await send(pipe, "b", viewer, task)
+        assert viewer.renderer.mode == "detail" and not viewer.renderer.color
+        assert viewer.viewport == initial_camera
+        assert tuple(viewer.windows) == initial_windows
 
 async def test_fullscreen_mode_uses_full_terminal_and_escape_returns(mif):
     async with running(mif[0]) as (viewer, pipe, _, task):
@@ -316,7 +359,9 @@ async def test_color_and_ascii_families_switch_and_remember_styles(mif):
         await send(pipe, "b", viewer, task)
         assert viewer.renderer.mode == "simple" and not viewer.renderer.color
         await send(pipe, "m", viewer, task)
-        assert viewer.renderer.mode == "blocks" and viewer.renderer.color
+        # b is temporary: M and m return to the remembered artwork, not
+        # b's forced color blocks state.
+        assert viewer.renderer.mode == "shape" and viewer.renderer.color
 
 
 async def test_custom_simple_ramp_survives_both_families(mif):
@@ -324,14 +369,19 @@ async def test_custom_simple_ramp_survives_both_families(mif):
 
     renderer = TextRenderer(mode="simple", ramp=" .#", color=False)
     async with running(mif[0], renderer=renderer) as (viewer, pipe, _, task):
+        assert viewer.mode_navigation.label == "simple"
+        assert not viewer.mode_navigation.color_enabled
+        await send(pipe, "M", viewer, task)
         assert viewer.mode_navigation.label == "ASCII custom"
         await send(pipe, "M", viewer, task)
         assert viewer.mode_navigation.label == "ASCII fine"
         await send(pipe, "m", viewer, task)
-        assert viewer.renderer.mode == "simple" and viewer.renderer.color
+        assert viewer.renderer.mode == "simple" and not viewer.renderer.color
         assert viewer.renderer.ramp == " .#"
-        await send(pipe, "mm", viewer, task)
-        assert viewer.renderer.mode == "detail" and viewer.renderer.color
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "detail" and not viewer.renderer.color
+        await send(pipe, "m", viewer, task)
+        assert viewer.renderer.mode == "shape" and not viewer.renderer.color
         await send(pipe, "M", viewer, task)
         assert viewer.mode_navigation.label == "ASCII fine"
         await send(pipe, "M", viewer, task)

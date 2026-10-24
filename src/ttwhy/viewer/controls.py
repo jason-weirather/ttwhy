@@ -114,7 +114,7 @@ class ChannelControl(UIControl):
                          " Drag / Space+arrows: box")
             hints = [tool_help, " a: add | s/v: switch/exit", " [/]: area | Del: remove",
                      " Tab: corner / undo vertex", " y/Y: text | i/I: PNG",
-                     " t/T: ANSI | j/J: GeoJSON", " m: color | M: ASCII", " n: rename | Esc: done"]
+                     " t/T: ANSI | j/J: GeoJSON", " m: art | M: ASCII", " n: rename | Esc: done"]
             lines = [[("class:panel.title", " SELECTIONS")]]
             lines.extend([[("class:panel", text)] for text in hints[:max(0, height - 2)]])
             capacity = max(0, height - len(lines))

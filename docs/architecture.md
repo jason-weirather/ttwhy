@@ -307,8 +307,11 @@ interactive Unicode-capable terminals whose prompt_toolkit color depth is at
 least 256 colors, and simple for limited terminal/encoding capabilities or
 explicit no-color. The selector respects the same color-depth precedence as the
 viewer (`NO_COLOR`, `PROMPT_TOOLKIT_COLOR_DEPTH`, `COLORTERM`, toolkit default).
-No terminal escape sequence is sent to probe capability. Font coverage itself
-cannot be verified; users can always force a mode. The viewer status shows the
+For an advertised one-bit output or `NO_COLOR=1`, the CLI also initializes
+the actual renderer in monochrome, so `m` skips invisible half-blocks instead
+of merely suppressing color escape sequences. Explicit `--color` overrides
+this renderer default. No terminal escape sequence is sent to probe capability.
+Font coverage itself cannot be verified; users can always force a mode. The viewer status shows the
 resolved renderer rather than claiming a font was tested.
 
 Snapshots have a different output contract: auto + no ANSI emits portable simple
@@ -452,11 +455,15 @@ The channel list has focus-specific PageUp/PageDown and Home/End handling;
 canvas document navigation and bracket shortcuts are unchanged. Focus changes
 alone do not sample pixels. Enter solos any focused channel. Adaptive sidebar
 content reserves more rows for channels rather than increasing sidebar width.
-`ModeNavigation` remembers the active colored renderer (detail/shape/simple/blocks)
-and a separate strict-ASCII ramp index. `m` restores or advances colored modes;
+`ModeNavigation` remembers the active `m` artwork renderer
+(detail/shape/simple/blocks), its **independent color preference**, and a
+separate strictly monochrome `M` ASCII ramp index. `m` restores or advances
+artwork; when color is off it cycles only detail/shape/simple and skips blocks.
 `M` restores or advances classic/fine/bold ASCII variants of the existing simple
-renderer. Switching families preserves the last mode in each, with no one-shot
-restore flag. In selection, a cloned navigator and style-keyed cached frames
+renderer, without changing the `m` color preference. `t` toggles that preference;
+while `M` is active, the visible ASCII remains unstyled. `b` temporarily renders
+colored half-blocks and can restore an exact monochrome artwork or ASCII style.
+Switching families preserves the last mode in each, with no one-shot restore flag. In selection, a cloned navigator and style-keyed cached frames
 rerender existing ViewSamples without another source read, leaving cell geometry
 and region identities/masks untouched. The viewer's normal style is restored after
 selection. Full-terminal

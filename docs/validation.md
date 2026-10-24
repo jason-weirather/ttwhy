@@ -949,3 +949,41 @@ Native macOS/Windows terminal behavior, actual desktop clipboards, SSH/tmux,
 production slides and real remote Zarr/S3 stores were not exercised by this
 color-control pass. The existing source/transport behavior is unchanged. Colors
 remain display-only and session-local, with series changes resetting the palette.
+
+
+## Monochrome artwork and independent m/M navigation (October 24, 2026)
+
+This patch targets `46cf6f3f6cc57f6b27c64a8e5bfe2cf5f1fbc7f0`. The prior
+`ModeNavigation` inferred a rendering family from `TextRenderer.color`, so the
+`m` key forced colored output and monochrome Braille/shape were unreachable
+through its cycle. The two concepts are now independent: `m` is the remembered
+artwork family, `M` is a separate always-monochrome strict-ASCII ramp family,
+and `t` toggles the artwork family's color preference. Monochrome `m` cycles
+only detail/shape/simple; color enables half-blocks as a fourth style. Switching
+families first restores the saved style. `b` retains temporary half-block preview
+with an exact restoration path for monochrome art *and* strict ASCII. Inversion
+while in an ASCII ramp preserves that ramp. A reported 1-bit/`NO_COLOR=1`
+interactive terminal initializes the renderer in monochrome unless the caller
+explicitly requests `--color`.
+
+**Executed regression checks (overlapping lanes, not additive):** 81 passed for
+viewer/mode navigation/terminal/CLI/legacy; 108 passed for color controls,
+terminal capabilities and CLI; 145 passed for numerical renderers, terminal
+capabilities, and source sessions; 70 passed for sampled/startup/runtime
+whole-slide overview cases (including two real PTY runs); 108 passed for image,
+SVS and remote-input cases; and 31 passed for document navigation. Twenty
+selected multiselection/clip tests also passed with a temporary, out-of-tree
+`coolname` name-generator substitute, including frozen selection `m/M` previews
+without new image reads. The substitute is not in the patch or wheel. The real
+`coolname` package was unavailable here, so the full naming-dependent suite
+was not verified; a broader invocation produced missing-package failures and
+a combined slow suite exceeded the runner's deadline. These are not presented
+as a complete green suite. One Python 3.13 `forkpty` deprecation warning was
+observed in the color-control lane and two in the overview lane.
+
+No reader, sampling algorithm, pixel/ROI geometry, package/dependency minimum,
+or snapshot rendering default was deliberately changed. New tests include
+monochrome m cycles and skip-block invariants, `t` inside M, temporary b
+round-trips, custom ramps, startup `NO_COLOR`, and actual prompt_toolkit key
+input. Native macOS/Windows terminals and live SSH/tmux transports were not
+exercised in this pass.
