@@ -30,6 +30,22 @@ ttwhy --version
 ttwhy photograph.png
 ```
 
+For a **CLI-only installation**, `pipx` or `uv tool` is a good fit: either gives
+`ttwhy` its own Python environment rather than changing NumPy, Numba, or other
+packages in an existing analysis environment (once the distribution is published):
+
+```bash
+pipx install 'ttwhy-viewer[pdf]'
+# Or, if you use uv:
+uv tool install 'ttwhy-viewer[pdf]'
+```
+
+When installing `ttwhy` into a shared Python environment, its NumPy requirement
+accepts existing NumPy 1.26.4 and 2.0.x installations, as well as newer NumPy 2.x.
+There is no reason for ttwhy itself to demand NumPy 2.1 or upgrade a compatible
+installation. Other installed packages can have their own constraints, so verify
+shared environments with `python -m pip check` after installing.
+
 From this source checkout:
 
 ```bash
@@ -38,6 +54,17 @@ mamba activate ttwhy_env
 python -m pip install -e '.[dev,pdf,s3]'
 python -m pip check
 ```
+
+To install the **CLI directly from this checkout** without touching the active
+analysis environment, use either isolated tool installer here:
+
+```bash
+pipx install --editable '.[pdf]'
+# Or, if you use uv:
+uv tool install --editable '.[pdf]'
+```
+
+Editable installs refer to this checkout, so keep it in place.
 
 Pillow supplies common image codecs; PDF is an optional pypdfium2 extra. OME-Zarr
 is handled by Omeify's normal Zarr/fsspec dependencies. S3 access uses an
