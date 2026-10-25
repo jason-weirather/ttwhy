@@ -5,7 +5,7 @@
 `ttwhy` is a zoomable, full-screen image viewer made of *actual terminal characters*. Open an OME-TIFF, SVS, or OME-Zarr slide, explore multichannel fluorescence, inspect a PNG, or page through a PDF. No browser, image server, X11, graphics protocol, or GPU required.
 
 <p align="center">
-  <a href="docs/media/pathology.gif"><img src="docs/media/pathology.gif" width="900" alt="Real recording of ttwhy zooming through multiplex immunofluorescence and revealing CD8 signal in cyan on blue DAPI nuclei"></a>
+  <a href="https://github.com/jason-weirather/ttwhy/blob/main/docs/media/pathology.gif"><img src="https://raw.githubusercontent.com/jason-weirather/ttwhy/main/docs/media/pathology.gif" width="900" alt="Real recording of ttwhy zooming through multiplex immunofluorescence and revealing CD8 signal in cyan on blue DAPI nuclei"></a>
 </p>
 <p align="center"><em>Real terminal footage: 59-channel multiplex microscopy, DAPI and CD8. Channel selection and zoom, no mock interface.</em></p>
 
@@ -17,24 +17,24 @@ These are short, automatically looping recordings of `ttwhy` itself. Click any c
 <tr>
 <td width="50%" valign="top">
 <strong>Whole-slide H&amp;E-style imagery</strong><br>
-<a href="docs/media/he.gif"><img src="docs/media/he.gif" width="440" alt="ttwhy zooming from a tissue overview to individual nuclei in a pseudo-H&E slide"></a><br>
+<a href="https://github.com/jason-weirather/ttwhy/blob/main/docs/media/he.gif"><img src="https://raw.githubusercontent.com/jason-weirather/ttwhy/main/docs/media/he.gif" width="440" alt="ttwhy zooming from a tissue overview to individual nuclei in a pseudo-H&E slide"></a><br>
 <small>Zoom from tissue-scale context into individual nuclei.</small>
 </td>
 <td width="50%" valign="top">
 <strong>An ordinary PNG. Featuring a cat.</strong><br>
-<a href="docs/media/cat.gif"><img src="docs/media/cat.gif" width="440" alt="ttwhy zooming into an orange-and-white cat in a sunlit windowsill illustration"></a><br>
+<a href="https://github.com/jason-weirather/ttwhy/blob/main/docs/media/cat.gif"><img src="https://raw.githubusercontent.com/jason-weirather/ttwhy/main/docs/media/cat.gif" width="440" alt="ttwhy zooming into an orange-and-white cat in a sunlit windowsill illustration"></a><br>
 <small>PNG, JPEG, WebP: zoom and pan familiar images, too.</small>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 <strong>A scientific PDF</strong><br>
-<a href="docs/media/pdf.gif"><img src="docs/media/pdf.gif" width="440" alt="ttwhy switching pages in a scientific PDF and zooming into a transformer architecture diagram"></a><br>
+<a href="https://github.com/jason-weirather/ttwhy/blob/main/docs/media/pdf.gif"><img src="https://raw.githubusercontent.com/jason-weirather/ttwhy/main/docs/media/pdf.gif" width="440" alt="ttwhy switching pages in a scientific PDF and zooming into a transformer architecture diagram"></a><br>
 <small>Turn pages, then zoom into figures. PDF support is standard.</small>
 </td>
 <td width="50%" valign="top">
 <strong>Polygon selections</strong><br>
-<a href="docs/media/selection.gif"><img src="docs/media/selection.gif" width="440" alt="ttwhy drawing a yellow polygon selection around a tissue core and preparing it for GeoJSON export"></a><br>
+<a href="https://github.com/jason-weirather/ttwhy/blob/main/docs/media/selection.gif"><img src="https://raw.githubusercontent.com/jason-weirather/ttwhy/main/docs/media/selection.gif" width="440" alt="ttwhy drawing a yellow polygon selection around a tissue core and preparing it for GeoJSON export"></a><br>
 <small>Select rectangles or polygons; export GeoJSON, text, ANSI art, or PNG.</small>
 </td>
 </tr>
@@ -44,7 +44,7 @@ These are short, automatically looping recordings of `ttwhy` itself. Click any c
 
 Python **3.11+**. The **distribution name** is `ttwhy-viewer`; the executable and Python import are both `ttwhy`. (The unrelated package named `ttwhy` on PyPI is **not** this project.)
 
-Once the distribution is published, install the standalone command without changing packages in a scientific Python environment:
+Install the standalone command without changing packages in a scientific Python environment:
 
 ```bash
 uv tool install ttwhy-viewer
@@ -111,7 +111,7 @@ The initial view fits the image. Wheel zoom is anchored to the pointer; pan with
 | GIF, APNG, animated WebP | View a selected frame (not animation playback) |
 | PDF | Navigate pages; progressively improve raster detail; copy embedded text from a rectangular selection |
 
-For advanced flags, channel/series semantics, color modes, cache limits, clipboard behavior, and format caveats, use the **[full reference](docs/reference.md)**. Architecture notes are in [docs/architecture.md](docs/architecture.md).
+For advanced flags, channel/series semantics, color modes, cache limits, clipboard behavior, and format caveats, use the **[full reference](https://github.com/jason-weirather/ttwhy/blob/main/docs/reference.md)**. Architecture notes are in [docs/architecture.md](https://github.com/jason-weirather/ttwhy/blob/main/docs/architecture.md).
 
 ## Try a synthetic microscopy example
 
@@ -135,12 +135,16 @@ print(frame.to_text())
 
 ## Optional remote sources
 
-Local files are the main workflow. `ttwhy` also supports HTTP(S) images/PDFs (bounded download) and HTTP(S) OME-Zarr (regional chunk reads). For native S3 or S3-compatible stores, install `ttwhy-viewer[s3]` and use your normal AWS credentials or an endpoint override. No S3 setup is needed for local images, slides, or PDFs. [Remote input reference](docs/reference.md#local-and-remote-inputs).
+Local files are the main workflow. `ttwhy` also supports HTTP(S) images/PDFs (bounded download) and HTTP(S) OME-Zarr (regional chunk reads). For native S3 or S3-compatible stores, install `ttwhy-viewer[s3]` and use your normal AWS credentials or an endpoint override. No S3 setup is needed for local images, slides, or PDFs. [Remote input reference](https://github.com/jason-weirather/ttwhy/blob/main/docs/reference.md#local-and-remote-inputs).
 
 ## Release media and provenance
 
-The GIFs above are edited from real ttwhy terminal recordings; larger MP4 versions are intended for social posts, not bundled into the Python wheel. Check rights/permissions for the original microscopy images before public release. The PDF demonstration uses *Attention Is All You Need* (Vaswani et al., 2017); the histology example is pseudo-H&E imagery. Image-artwork licenses and sample provenance remain the publisher's responsibility.
+These GIFs are edited recordings of the real `ttwhy` terminal viewer. Showcase sources:
+
+- **mIF and pseudo-H&E:** Tan, Y. & Kempchen, T. (2024), [*SPACEc demo dataset*](https://doi.org/10.5061/dryad.brv15dvj1), Dryad. The pseudo-H&E is computationally derived, not a conventional H&E stain.
+- **PDF:** Vaswani, A. et al. (2017), [*Attention Is All You Need*](https://arxiv.org/abs/1706.03762), NeurIPS.
+- **Cat:** Illustration generated with ChatGPT (OpenAI).
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](https://github.com/jason-weirather/ttwhy/blob/main/LICENSE).
