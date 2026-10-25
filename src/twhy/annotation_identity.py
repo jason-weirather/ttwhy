@@ -9,7 +9,7 @@ def random_name() -> str:
     try:
         from coolname import generate_slug
     except ImportError as error:
-        raise RuntimeError("Selection naming requires coolname; reinstall ttwhy's dependencies") from error
+        raise RuntimeError("Selection naming requires coolname; reinstall twhy's dependencies") from error
     return generate_slug(3)
 
 

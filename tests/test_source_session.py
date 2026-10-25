@@ -9,8 +9,8 @@ from omeify import ImageLevel, ImageMetadata, ImageSource, LabelImage, Multichan
 from omeify import OMETiffReader, PixelSize, RGBImage
 
 from conftest import write_pyramid
-from ttwhy import ChannelStyle, IntensityWindow, ReadBudgetExceeded, TextRenderer
-from ttwhy import Viewport, ViewSession, resample_image
+from twhy import ChannelStyle, IntensityWindow, ReadBudgetExceeded, TextRenderer
+from twhy import Viewport, ViewSession, resample_image
 
 
 @pytest.mark.parametrize("fixture_name", ["mif", "rgb"])

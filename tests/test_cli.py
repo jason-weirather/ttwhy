@@ -6,8 +6,8 @@ import re
 import pytest
 from click.testing import CliRunner
 
-from ttwhy import __version__
-from ttwhy.cli import main
+from twhy import __version__
+from twhy.cli import main
 
 
 def test_help_and_eager_version_without_input():

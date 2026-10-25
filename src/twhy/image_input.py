@@ -27,7 +27,7 @@ DEFAULT_PDF_DPI = 144.0
 # Explicit allowlist: do not let Pillow's EPS/PS plugins launch Ghostscript.
 RASTER_FORMATS = ("PNG", "JPEG", "WEBP", "BMP", "GIF", "ICO", "PPM", "TGA")
 TIFF_HEADERS = (b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")
-# PDFium is not thread-safe, even for different documents. All ttwhy PDF calls,
+# PDFium is not thread-safe, even for different documents. All twhy PDF calls,
 # including import, construction, rendering and cleanup, share this lock. Other
 # code directly using PDFium in the same process must coordinate separately.
 PDF_LOCK = RLock()
@@ -72,7 +72,7 @@ def _raster_pixels(path: Path, frame: int, background: tuple[int, int, int]) -> 
         from PIL import Image, ImageOps, UnidentifiedImageError
     except ImportError as error:
         raise RuntimeError(
-            "Raster viewing requires Pillow; reinstall ttwhy's dependencies"
+            "Raster viewing requires Pillow; reinstall twhy's dependencies"
         ) from error
     try:
         with Image.open(path, formats=list(RASTER_FORMATS)) as source:
@@ -128,8 +128,8 @@ def _pdf_pixels(path: Path, page: int, dpi: float,
             import pypdfium2 as pdfium
         except ImportError as error:
             raise RuntimeError(
-                "PDF viewing requires pypdfium2, a standard ttwhy-viewer dependency. "
-                "Reinstall ttwhy-viewer with dependencies enabled."
+                "PDF viewing requires pypdfium2, a standard twhy dependency. "
+                "Reinstall twhy with dependencies enabled."
             ) from error
         with pdfium.PdfDocument(path) as document:
             document.init_forms()

@@ -14,16 +14,16 @@ from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from conftest import write_pyramid
 from test_document_navigation import browsing, write_series
 from test_viewer import SizedOutput, eventually, ready, running, send
-from ttwhy import IntensityWindow, TextRenderer, ViewSession, open_image
-from ttwhy.channel_colors import (
+from twhy import IntensityWindow, TextRenderer, ViewSession, open_image
+from twhy.channel_colors import (
     apply_channel_colors, channel_palette, color_hex, parse_color,
 )
-from ttwhy.cli import main
-from ttwhy.compositing import CHANNEL_COLORS
-from ttwhy.viewer import Viewer, view_file
-from ttwhy.viewer.controls import _padded_label
-from ttwhy.viewer.rendering import FrameRequest, make_frame
-from ttwhy.viewport import Viewport
+from twhy.cli import main
+from twhy.compositing import CHANNEL_COLORS
+from twhy.viewer import Viewer, view_file
+from twhy.viewer.controls import _padded_label
+from twhy.viewer.rendering import FrameRequest, make_frame
+from twhy.viewport import Viewport
 
 
 @pytest.mark.parametrize("text,expected", [
@@ -252,7 +252,7 @@ def test_long_unicode_labels_do_not_move_swatch():
 
 async def test_selection_style_cycles_keep_custom_colors(mif, monkeypatch):
     # Naming is independent of this rendering test; deterministic label fixture.
-    monkeypatch.setattr("ttwhy.annotation_identity.random_name", lambda: "quiet-blue-otter")
+    monkeypatch.setattr("twhy.annotation_identity.random_name", lambda: "quiet-blue-otter")
     async with running(mif[0], channel_colors={0: "cyan"}) as (viewer, pipe, _, task):
         await send(pipe, "s", viewer, task)
         assert viewer.selecting
@@ -352,7 +352,7 @@ def test_rgb_cli_rejects_pseudocolor_before_pixels(rgb, monkeypatch):
 
 def test_cli_interactive_passes_overrides(mif, monkeypatch):
     import sys
-    import ttwhy.viewer.file_viewer as frontend
+    import twhy.viewer.file_viewer as frontend
     seen = []
     async def fake_view(path, **kwargs):
         seen.append(kwargs["channel_colors"])
@@ -390,7 +390,7 @@ def test_color_only_request_rejects_samples_from_another_view(mif, monkeypatch):
 
 async def test_selected_png_and_ansi_keep_edited_color(tmp_path, monkeypatch):
     from PIL import Image
-    monkeypatch.setattr("ttwhy.annotation_identity.random_name", lambda: "quiet-blue-otter")
+    monkeypatch.setattr("twhy.annotation_identity.random_name", lambda: "quiet-blue-otter")
     path, png, ansi = (tmp_path / name for name in ("signal.ome.tif", "clip.png", "clip.ansi"))
     write_pyramid(path, np.full((16, 32), 255, np.uint8), levels=1)
     async with running(path, renderer=TextRenderer(mode="blocks"),
@@ -424,7 +424,7 @@ def test_real_terminal_color_entry_and_restoration(tmp_path):
     write_pyramid(path, np.full((24, 32), 255, np.uint8), levels=1)
     transcript = io.StringIO()
     terminal = pexpect.spawn(
-        sys.executable, ["-m", "ttwhy", str(path), "--mode", "blocks",
+        sys.executable, ["-m", "twhy", str(path), "--mode", "blocks",
                         "--lower", "0", "--upper", "255"],
         encoding="utf-8", timeout=15, dimensions=(24, 100),
         env={**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"},

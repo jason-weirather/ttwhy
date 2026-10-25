@@ -11,10 +11,10 @@ from click.testing import CliRunner
 from PIL import Image as PILImage
 from PIL import features
 
-from ttwhy import IntensityWindow, TextRenderer, Viewport, ViewSession, open_image
-from ttwhy.cli import main
-from ttwhy.image_input import image_kind
-from ttwhy.image_pyramid import image_pyramid
+from twhy import IntensityWindow, TextRenderer, Viewport, ViewSession, open_image
+from twhy.cli import main
+from twhy.image_input import image_kind
+from twhy.image_pyramid import image_pyramid
 
 
 def write_pdf(path, *, rotated=False):
@@ -214,7 +214,7 @@ def test_tiff_keeps_original_reader_and_never_constructs_ram_pyramid(rgb, monkey
     def forbidden(*args, **kwargs):
         raise AssertionError("Ordinary-image ingress must not run on a TIFF")
 
-    monkeypatch.setattr("ttwhy.image_input.image_pyramid", forbidden)
+    monkeypatch.setattr("twhy.image_input.image_pyramid", forbidden)
     monkeypatch.setattr(PILImage, "open", forbidden)
     with open_image(rgb[0]) as image:
         assert isinstance(image, OMETiffReader)
@@ -350,7 +350,7 @@ def guarded(name, *args, **kwargs):
     assert name.split(".")[0] not in ("PIL", "pypdfium2", "omeify", "prompt_toolkit"), name
     return original(name, *args, **kwargs)
 builtins.__import__ = guarded
-from ttwhy import TextRenderer, open_image
+from twhy import TextRenderer, open_image
 assert callable(open_image)
 TextRenderer(color=False).render([[0.0, 1.0]])
 '''
@@ -373,7 +373,7 @@ def test_pdf_missing_required_dependency_is_actionable_but_rasters_still_work(
     with open_image(raster[0]) as image:
         assert image.is_open
     result = CliRunner().invoke(main, [str(path), "--snapshot"])
-    assert result.exit_code != 0 and "standard ttwhy-viewer dependency" in result.output
+    assert result.exit_code != 0 and "standard twhy dependency" in result.output
 
 
 @pytest.mark.parametrize("dpi", [72, 144, 300])

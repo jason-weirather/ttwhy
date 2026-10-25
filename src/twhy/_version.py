@@ -10,9 +10,9 @@ def resolve_version() -> str:
     if project_file.is_file():
         with project_file.open("rb") as stream:
             project = tomllib.load(stream).get("project", {})
-        if project.get("name") == "ttwhy-viewer":
+        if project.get("name") == "twhy":
             return str(project["version"])
     try:
-        return version("ttwhy-viewer")
+        return version("twhy")
     except PackageNotFoundError:
         return "0+unknown"

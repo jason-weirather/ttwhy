@@ -11,9 +11,9 @@ from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from ttwhy import ReadBudgetExceeded, TextRenderer, Viewport, ViewSession, open_image
-from ttwhy.viewer import Viewer
-from ttwhy.viewer.rendering import FrameRequest, make_frame
+from twhy import ReadBudgetExceeded, TextRenderer, Viewport, ViewSession, open_image
+from twhy.viewer import Viewer
+from twhy.viewer.rendering import FrameRequest, make_frame
 
 from conftest import write_pyramid
 from test_svs import synthetic_svs

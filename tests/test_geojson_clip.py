@@ -10,12 +10,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from ttwhy import TextImage, TextRenderer, Viewport
-from ttwhy.geojson_clip import dumps, map_cell_point, polygon_feature, rectangle_feature
-from ttwhy.viewer.clipping import clip_options
-from ttwhy.viewer.rendering import terminal_lines
-from ttwhy.viewer.selection import PolygonSelection, RectangleSelection
-from ttwhy.viewer.viewer import Viewer
+from twhy import TextImage, TextRenderer, Viewport
+from twhy.geojson_clip import dumps, map_cell_point, polygon_feature, rectangle_feature
+from twhy.viewer.clipping import clip_options
+from twhy.viewer.rendering import terminal_lines
+from twhy.viewer.selection import PolygonSelection, RectangleSelection
+from twhy.viewer.viewer import Viewer
 
 
 @pytest.fixture

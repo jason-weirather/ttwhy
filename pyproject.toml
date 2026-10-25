@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ttwhy-viewer"
+name = "twhy"
 version = "0.2.0"
 description = "Zoomable microscopy, image and PDF previews in a text terminal"
 readme = "README.md"
@@ -36,17 +36,17 @@ dev = [
 ]
 
 [project.scripts]
-ttwhy = "ttwhy.cli:main"
+twhy = "twhy.cli:main"
 
 [project.urls]
-Repository = "https://github.com/jason-weirather/ttwhy"
-Issues = "https://github.com/jason-weirather/ttwhy/issues"
+Repository = "https://github.com/jason-weirather/twhy"
+Issues = "https://github.com/jason-weirather/twhy/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-ttwhy = ["py.typed"]
+twhy = ["py.typed"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"

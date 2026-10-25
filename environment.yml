@@ -1,4 +1,4 @@
-name: ttwhy_env
+name: twhy_env
 channels:
   - conda-forge
 dependencies:

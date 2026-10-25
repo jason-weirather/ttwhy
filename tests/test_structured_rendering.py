@@ -9,11 +9,11 @@ from click.testing import CliRunner
 from omeify import OMETiffReader
 from wcwidth import wcwidth
 
-from ttwhy import TextRenderer, Viewport, ViewSession
-from ttwhy.cli import main
-from ttwhy.glyph_atlas import SAMPLE_YX, glyph_atlas
-from ttwhy.structured_rendering import braille_cells, cell_patches
-from ttwhy.text_renderer import MAX_STRUCTURED_SAMPLES
+from twhy import TextRenderer, Viewport, ViewSession
+from twhy.cli import main
+from twhy.glyph_atlas import SAMPLE_YX, glyph_atlas
+from twhy.structured_rendering import braille_cells, cell_patches
+from twhy.text_renderer import MAX_STRUCTURED_SAMPLES
 
 
 @pytest.mark.parametrize('mode', ['detail', 'shape', 'simple', 'ascii', 'blocks'])
@@ -136,7 +136,7 @@ def test_atlas_readonly_single_column_and_finite():
 
 
 def test_matching_batch_size_does_not_change_output(monkeypatch):
-    import ttwhy.structured_rendering as structured
+    import twhy.structured_rendering as structured
 
     image = np.random.default_rng(20).random((31, 49))
     image[1:6, 1:8] = np.nan
@@ -148,7 +148,7 @@ def test_matching_batch_size_does_not_change_output(monkeypatch):
 
 @pytest.mark.parametrize('mode', ['detail', 'shape'])
 def test_structured_sample_cap_checked_before_resampling(mode, monkeypatch):
-    import ttwhy.text_renderer as rendering
+    import twhy.text_renderer as rendering
 
     def forbidden(*args, **kwargs):
         raise AssertionError('Resampling must not start')

@@ -73,7 +73,7 @@ class DocumentNavigation:
     def start(self, viewer: Viewer) -> None:
         self.viewer = viewer
         self._wake = asyncio.Event()
-        self._loader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ttwhy-source")
+        self._loader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="twhy-source")
         self._load_task = asyncio.create_task(self._load_loop())
 
     def _invalidate(self) -> None:

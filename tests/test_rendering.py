@@ -5,7 +5,7 @@ import re
 import numpy as np
 import pytest
 
-from ttwhy import (ChannelStyle, IntensityWindow, TextImage, TextRenderer, Viewport,
+from twhy import (ChannelStyle, IntensityWindow, TextImage, TextRenderer, Viewport,
                    compose_channels, estimate_window, resample_image)
 
 

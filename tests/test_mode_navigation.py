@@ -5,11 +5,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from ttwhy import TextRenderer
-from ttwhy.viewer.bindings import create_bindings
-from ttwhy.viewer.mode_navigation import ModeNavigation
-from ttwhy.viewer.rendering import terminal_lines
-from ttwhy.viewer.viewer import Viewer
+from twhy import TextRenderer
+from twhy.viewer.bindings import create_bindings
+from twhy.viewer.mode_navigation import ModeNavigation
+from twhy.viewer.rendering import terminal_lines
+from twhy.viewer.viewer import Viewer
 
 
 def test_mode_navigation_roundtrip_and_strict_ascii():
@@ -263,7 +263,7 @@ def test_t_during_temporary_blocks_uses_underlying_artwork_preference():
     assert viewer.renderer.mode == "shape" and not viewer.renderer.color
 
 def test_monochrome_frozen_selection_preview_has_no_colors_or_source_reads(monkeypatch):
-    from ttwhy.viewport import Viewport
+    from twhy.viewport import Viewport
     pixels = np.linspace(0, 1, 20 * 32, dtype=np.float32).reshape(20, 32)
     initial = TextRenderer(mode="detail", color=False)
     frame = initial.render(pixels, rows=5, columns=8)
@@ -275,7 +275,7 @@ def test_monochrome_frozen_selection_preview_has_no_colors_or_source_reads(monke
             return tuple(channels)
 
         def prepare_styles(self, *args, **kwargs):
-            from ttwhy import ChannelStyle, IntensityWindow
+            from twhy import ChannelStyle, IntensityWindow
             return (ChannelStyle(IntensityWindow(0, 1)),)
 
         def render(self, samples, *, styles, renderer, rows, columns):
@@ -294,7 +294,7 @@ def test_monochrome_frozen_selection_preview_has_no_colors_or_source_reads(monke
     viewer.generation = viewer.displayed_generation = 1
     viewer.samples = SimpleNamespace(plan=SimpleNamespace(channels=(0,)))
     viewer.windows = [None]
-    monkeypatch.setattr("ttwhy.annotation_identity.random_name", lambda: "quiet-small-otter")
+    monkeypatch.setattr("twhy.annotation_identity.random_name", lambda: "quiet-small-otter")
     clip = viewer.clipping
     clip.start()
     clip.selection.start_drag(1, 1)
@@ -361,7 +361,7 @@ def test_selection_copy_save_key_pairs_and_render_keys(kind):
 
 
 def test_frozen_multiselection_cycles_without_sampling_or_moving_areas(monkeypatch):
-    from ttwhy.viewport import Viewport
+    from twhy.viewport import Viewport
 
     data = np.linspace(0, 1, 160 * 240).reshape(160, 240)
     renderer = TextRenderer(mode="blocks")
@@ -374,7 +374,7 @@ def test_frozen_multiselection_cycles_without_sampling_or_moving_areas(monkeypat
             return tuple(channels)
 
         def prepare_styles(self, *args, **kwargs):
-            from ttwhy import ChannelStyle, IntensityWindow
+            from twhy import ChannelStyle, IntensityWindow
             return (ChannelStyle(IntensityWindow(0, 1)),)
 
         def render(self, samples, *, styles, renderer, rows, columns):
@@ -395,7 +395,7 @@ def test_frozen_multiselection_cycles_without_sampling_or_moving_areas(monkeypat
     viewer.samples = SimpleNamespace(plan=SimpleNamespace(channels=(0,)))
     viewer.windows = [None]
     names = iter(("quiet-small-otter", "brisk-amber-owl"))
-    monkeypatch.setattr("ttwhy.annotation_identity.random_name", lambda: next(names))
+    monkeypatch.setattr("twhy.annotation_identity.random_name", lambda: next(names))
 
     clip = viewer.clipping
     clip.start()
@@ -433,12 +433,12 @@ async def test_real_terminal_app_m_M_switches_and_selection_saves(tmp_path, monk
     from prompt_toolkit.data_structures import Size
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
-    from ttwhy.intensity_window import IntensityWindow
-    from ttwhy.compositing import ChannelStyle
-    from ttwhy.viewport import Viewport
+    from twhy.intensity_window import IntensityWindow
+    from twhy.compositing import ChannelStyle
+    from twhy.viewport import Viewport
 
     names = iter(("quiet-small-otter", "brisk-amber-owl"))
-    monkeypatch.setattr("ttwhy.annotation_identity.random_name", lambda: next(names))
+    monkeypatch.setattr("twhy.annotation_identity.random_name", lambda: next(names))
 
     class Session:
         info = SimpleNamespace(name="Demo", channels=("A",), shape=(96, 144),

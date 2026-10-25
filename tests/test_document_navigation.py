@@ -15,12 +15,12 @@ from prompt_toolkit.input import create_pipe_input
 
 from test_image_input import write_pdf
 from test_viewer import SizedOutput, eventually, ready, send
-from ttwhy import IntensityWindow, TextRenderer
-from ttwhy.cli import main
-from ttwhy.image_document import ImageDocument
-from ttwhy.pdf_workers import PdfWorkers, pdf_dpi_steps, render_pdf_pyramid
-from ttwhy.viewer import Viewer
-from ttwhy.viewer.navigation import DocumentNavigation
+from twhy import IntensityWindow, TextRenderer
+from twhy.cli import main
+from twhy.image_document import ImageDocument
+from twhy.pdf_workers import PdfWorkers, pdf_dpi_steps, render_pdf_pyramid
+from twhy.viewer import Viewer
+from twhy.viewer.navigation import DocumentNavigation
 
 
 @pytest.mark.parametrize("ceiling,steps", [
@@ -162,7 +162,7 @@ def crash_process(send, *args):
 
 
 async def test_cancellation_reaps_process_and_receiver(tmp_path, monkeypatch):
-    monkeypatch.setattr("ttwhy.pdf_workers.pdf_process", slow_process)
+    monkeypatch.setattr("twhy.pdf_workers.pdf_process", slow_process)
     workers = PdfWorkers()
     before = {p.pid for p in mp.active_children()}
     task = asyncio.create_task(workers.render(tmp_path / "unused", 1, 600, (0, 0, 0)))
@@ -176,7 +176,7 @@ async def test_cancellation_reaps_process_and_receiver(tmp_path, monkeypatch):
 
 
 async def test_worker_death_is_reported_and_cleaned(tmp_path, monkeypatch):
-    monkeypatch.setattr("ttwhy.pdf_workers.pdf_process", crash_process)
+    monkeypatch.setattr("twhy.pdf_workers.pdf_process", crash_process)
     workers = PdfWorkers()
     try:
         with pytest.raises(RuntimeError, match="without a complete result"):
@@ -219,7 +219,7 @@ class GatedWorkers:
 
 async def test_progressive_upgrade_keeps_camera_contrast_and_never_downgrades(tmp_path, monkeypatch):
     pytest.importorskip("pypdfium2")
-    monkeypatch.setattr("ttwhy.viewer.navigation.PdfWorkers", GatedWorkers)
+    monkeypatch.setattr("twhy.viewer.navigation.PdfWorkers", GatedWorkers)
     path = write_book(tmp_path / "progressive.pdf")
     async with browsing(path, pdf_max_dpi=600) as (nav, viewer, pipe, _, task):
         await eventually(lambda: nav._workers is not None and len(nav._workers.calls) == 2, task)
@@ -246,7 +246,7 @@ async def test_progressive_upgrade_keeps_camera_contrast_and_never_downgrades(tm
 
 async def test_neighbor_prefetch_waits_for_current_and_cached_flip_is_reused(tmp_path, monkeypatch):
     pytest.importorskip("pypdfium2")
-    monkeypatch.setattr("ttwhy.viewer.navigation.PdfWorkers", GatedWorkers)
+    monkeypatch.setattr("twhy.viewer.navigation.PdfWorkers", GatedWorkers)
     path = write_pdf(tmp_path / "neighbors.pdf")
     async with browsing(path, pdf_max_dpi=600, cache_pages=3) as (nav, viewer, pipe, _, task):
         await eventually(lambda: nav._workers is not None and len(nav._workers.calls) == 2, task)
@@ -281,7 +281,7 @@ async def test_failed_detail_keeps_usable_preview(tmp_path, monkeypatch):
         async def render(self, path, page, dpi, background):
             raise MemoryError("deliberate allocation failure")
 
-    monkeypatch.setattr("ttwhy.viewer.navigation.PdfWorkers", FailingWorkers)
+    monkeypatch.setattr("twhy.viewer.navigation.PdfWorkers", FailingWorkers)
     path = write_pdf(tmp_path / "fail.pdf")
     async with browsing(path, pdf_max_dpi=600) as (nav, viewer, pipe, _, task):
         await eventually(lambda: nav._refine_task is not None and nav._refine_task.done(), task)
@@ -332,7 +332,7 @@ def test_old_cli_flag_removed_and_snapshot_uses_maximum(tmp_path, monkeypatch):
     assert "--pdf-dpi" not in runner.invoke(main, ["--help"]).output
     result = runner.invoke(main, [str(path), "--snapshot", "--pdf-dpi", "144"])
     assert result.exit_code != 0
-    from ttwhy import image_input
+    from twhy import image_input
     original = image_input._pdf_pixels
     resolutions = []
 
@@ -381,7 +381,7 @@ def write_book(path, *, count=5):
 
 async def test_moving_three_page_cache_releases_distant_images(tmp_path, monkeypatch):
     pytest.importorskip("pypdfium2")
-    monkeypatch.setattr("ttwhy.viewer.navigation.PdfWorkers", GatedWorkers)
+    monkeypatch.setattr("twhy.viewer.navigation.PdfWorkers", GatedWorkers)
     path = write_book(tmp_path / "five.pdf")
     async with browsing(path, page=3, pdf_max_dpi=144, cache_pages=3) as (nav, viewer, pipe, _, task):
         await eventually(lambda: nav._workers is not None and len(nav._workers.calls) == 2, task)
@@ -461,7 +461,7 @@ async def test_failed_series_open_keeps_current_source_and_navigation(tmp_path, 
 
 async def test_read_budget_cannot_move_camera_during_upgrade(tmp_path, monkeypatch):
     pytest.importorskip("pypdfium2")
-    monkeypatch.setattr("ttwhy.viewer.navigation.PdfWorkers", GatedWorkers)
+    monkeypatch.setattr("twhy.viewer.navigation.PdfWorkers", GatedWorkers)
     path = write_pdf(tmp_path / "budget.pdf")
     async with browsing(path, pdf_max_dpi=600) as (nav, viewer, _, _, task):
         await eventually(lambda: nav._workers is not None and len(nav._workers.calls) == 2, task)
@@ -480,7 +480,7 @@ async def test_read_budget_cannot_move_camera_during_upgrade(tmp_path, monkeypat
 
 async def test_real_file_viewer_refines_and_quits_with_jobs_active(tmp_path, monkeypatch):
     pytest.importorskip("pypdfium2")
-    from ttwhy.viewer import file_viewer
+    from twhy.viewer import file_viewer
 
     created = []
 
@@ -552,7 +552,7 @@ async def test_shutdown_awaits_both_child_finalizers(tmp_path, monkeypatch):
             assert not self.live, "A sibling PDF finalizer was abandoned"
             super().close()
 
-    monkeypatch.setattr("ttwhy.viewer.navigation.PdfWorkers", CleanupWorkers)
+    monkeypatch.setattr("twhy.viewer.navigation.PdfWorkers", CleanupWorkers)
     path = write_pdf(tmp_path / "cleanup.pdf")
     async with browsing(path, pdf_max_dpi=600) as (nav, _, pipe, _, task):
         await eventually(lambda: nav._workers is not None and len(nav._workers.calls) == 2, task)
@@ -567,8 +567,8 @@ async def test_shutdown_awaits_both_child_finalizers(tmp_path, monkeypatch):
 
 def test_snapshot_region_uses_initial_preview_coordinates(tmp_path, monkeypatch):
     pytest.importorskip("pypdfium2")
-    from ttwhy import ViewSession
-    from ttwhy.image_input import pdf_raster_shape
+    from twhy import ViewSession
+    from twhy.image_input import pdf_raster_shape
 
     path = write_book(tmp_path / "coordinates.pdf")
     plans = []

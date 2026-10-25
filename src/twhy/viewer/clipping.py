@@ -442,7 +442,7 @@ class ClipController:
                 return ClipResult(f"{label} clip failed: {error}")
 
         if self._executor is None:
-            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ttwhy-clip")
+            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="twhy-clip")
         future = asyncio.get_running_loop().run_in_executor(self._executor, prepare)
 
         async def deliver() -> None:

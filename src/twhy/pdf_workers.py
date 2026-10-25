@@ -70,7 +70,7 @@ class PdfWorkers:
     def __init__(self) -> None:
         self._context = mp.get_context("spawn")
         self._slots = asyncio.Semaphore(2)
-        self._receivers = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ttwhy-pdf-ipc")
+        self._receivers = ThreadPoolExecutor(max_workers=2, thread_name_prefix="twhy-pdf-ipc")
         self._processes: set = set()
         self._closed = False
 
@@ -86,7 +86,7 @@ class PdfWorkers:
             receive, send = self._context.Pipe(duplex=False)
             process = self._context.Process(
                 target=pdf_process, args=(send, str(path), page, dpi, background),
-                name=f"ttwhy-pdf-{page}-{dpi:g}", daemon=True,
+                name=f"twhy-pdf-{page}-{dpi:g}", daemon=True,
             )
             future = None
             started = False

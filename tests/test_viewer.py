@@ -12,8 +12,8 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from omeify import OMETiffReader
-from ttwhy import TextRenderer, ViewSession, open_image
-from ttwhy.viewer import Viewer
+from twhy import TextRenderer, ViewSession, open_image
+from twhy.viewer import Viewer
 
 
 class SizedOutput(DummyOutput):
@@ -365,7 +365,7 @@ async def test_color_and_ascii_families_switch_and_remember_styles(mif):
 
 
 async def test_custom_simple_ramp_survives_both_families(mif):
-    from ttwhy import TextRenderer
+    from twhy import TextRenderer
 
     renderer = TextRenderer(mode="simple", ramp=" .#", color=False)
     async with running(mif[0], renderer=renderer) as (viewer, pipe, _, task):
@@ -394,7 +394,7 @@ async def test_custom_simple_ramp_survives_both_families(mif):
 async def test_ordinary_image_and_pdf_use_same_zoom_pan_and_window_controls(tmp_path, kind):
     from PIL import Image as PILImage
     from test_image_input import write_pdf
-    from ttwhy import TextRenderer
+    from twhy import TextRenderer
 
     path = tmp_path / f"interactive.{kind}"
     if kind == "pdf":

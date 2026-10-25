@@ -1,4 +1,4 @@
-# ttwhy 0.2: Omeify 0.18 migration validation
+# twhy 0.2: Omeify 0.18 migration validation
 
 This update targets the supplied `2269e1c1db738e83e36ab9a120980dd61ed3ef9e`
 snapshot. It replaces the old file-only adapter with a ViewSession borrowing an
@@ -25,7 +25,7 @@ checks. Unknown scales retain a visibly labelled extent-fit display approximatio
 this is not inferred physical calibration. Categorical LabelImages are explicitly
 rejected because object-ID brightness would not be categorical visualization.
 
-Against the untouched ttwhy/Omeify 0.16.1 baseline, CLI help and four real snapshot
+Against the untouched twhy/Omeify 0.16.1 baseline, CLI help and four real snapshot
 workflows matched byte-for-byte in stdout and stderr: grayscale ASCII,
 multichannel ANSI, RGB half-blocks, and a read-budget-limited crop. Those fixtures
 have declared scales and dimensions divisible through their pyramids. This does
@@ -69,11 +69,11 @@ The preceding validation record describes the historical Omeify 0.18 migration a
 its then-current Python 3.13 minimum. The packaging baseline is now
 `omeify>=0.21.0` and `requires-python = ">=3.11"`; the default Conda environment
 uses Python 3.11. No image sampling, rendering, or terminal interaction logic was
-changed for this transition. In particular, ttwhy still consumes Omeify's public
+changed for this transition. In particular, twhy still consumes Omeify's public
 `Image` and `OMETiffReader` APIs, without a second TIFF decoder.
 
-The complete ttwhy test suite was run against the **Omeify 0.21.0 source snapshot**
-(commit `6d9f5ff`) under Python 3.13.5: **108 passed, 2 warnings**. All ttwhy
+The complete twhy test suite was run against the **Omeify 0.21.0 source snapshot**
+(commit `6d9f5ff`) under Python 3.13.5: **108 passed, 2 warnings**. All twhy
 source, demo, and test modules also parse with Python 3.11 grammar. This is a
 source-level integration test, not verification of the separately published PyPI
 wheel or an executed Python 3.11 runtime test. A Python 3.11 interpreter was not
@@ -83,7 +83,7 @@ To validate the newly supported interpreter using the published dependency:
 
 ```bash
 mamba env create -f environment.yml
-mamba activate ttwhy_env
+mamba activate twhy_env
 python -m pip install -e '.[dev]'
 python -m pip check
 python -c 'import sys, omeify; print(sys.version); print(omeify.__version__)'
@@ -96,7 +96,7 @@ TIFF codec and terminal combination differs from the synthetic fixtures. Python
 
 ## Foreground-only terminal render modes (October 2026)
 
-This patch targets the supplied ttwhy `aed55e5` snapshot. It adds default `detail`,
+This patch targets the supplied twhy `aed55e5` snapshot. It adds default `detail`,
 artistic `shape`, and legacy `simple` modes; `ascii` remains an alias for simple
 and the original `blocks` renderer remains available. No dependency or Python
 minimum was added/raised; the package version is unchanged at 0.2.0.
@@ -135,7 +135,7 @@ Actual `TextImage` results were inspected for the supplied reaction-image crop
 marker, and multichannel fields from `examples/make_demo.py`. The comparisons
 used equal 80-column text budgets. Inspection images were rasterizations of actual
 characters using local fonts, not generated UI mockups or patient-slide results.
-Those local fonts are not bundled with ttwhy. Raw text and ANSI were also retained.
+Those local fonts are not bundled with twhy. Raw text and ANSI were also retained.
 
 On a 512-by-512 synthetic RGB array rendered to 120 columns by 40 rows, median
 render-only times over five warm runs were 5.4 ms for simple, 37.1 ms for shape,
@@ -159,7 +159,7 @@ therefore a tighter initial crop under the same source-read budget.
 
 ## Auto terminal renderer selection (October 2026)
 
-Against the supplied ttwhy `1679265` snapshot, this change makes **auto** the CLI
+Against the supplied twhy `1679265` snapshot, this change makes **auto** the CLI
 mode default without editing the original rendering algorithms. Interactive
 truecolor/256-color Unicode terminals select blocks. Low-depth, dumb, or
 unsupported-encoding terminals select simple. Explicit modes remain available;
@@ -172,7 +172,7 @@ Quarter/block-character experiments remain future work. The Python library's
 
 ## Ordinary raster and optional PDF ingress (October 2026)
 
-This patch targets the supplied ttwhy `aec704f348cfe2b8a418f627a14e3e1ddf11a819`
+This patch targets the supplied twhy `aec704f348cfe2b8a418f627a14e3e1ddf11a819`
 snapshot. Python >=3.11, Omeify >=0.21.0, package version 0.2.0, and all rendering
 algorithms remain unchanged. Pillow is a new base dependency; the optional `pdf`
 extra adds pypdfium2. Ordinary files enter through Omeify's public array-image API,
@@ -235,12 +235,12 @@ A Python 3.11 runtime, minimum-version Pillow/PDFium combinations, macOS/Windows
 terminals, SSH/tmux combinations, large production slides, and every PDF feature
 were not exercised. Ruff was unavailable in this environment. Pillow builds
 without WebP support skip the WebP codec tests; this test environment supported
-WebP and executed them. Optional PDF integration tests skip without `ttwhy[pdf]`;
+WebP and executed them. Optional PDF integration tests skip without `twhy[pdf]`;
 they were installed and executed here. To run both lanes in a checkout:
 
 ```bash
 python -m pip install -e '.[dev,pdf]'
-python -m pytest --cov=ttwhy --cov-report=term-missing
+python -m pytest --cov=twhy --cov-report=term-missing
 ruff check .
 python -m build
 ```
@@ -249,7 +249,7 @@ Pillow remains the ordinary image decoder, with its supported sample depths and
 large-image protection. Higher-bit-depth RGB previews can be reduced to RGB8;
 scalar 16-bit PNG keeps raw uint16. PDF pages are fixed-resolution raster previews,
 not a text/search interface or unbounded vector zoom. Native PDFium calls within
-ttwhy are serialized; direct PDFium use elsewhere in an embedding application
+twhy are serialized; direct PDFium use elsewhere in an embedding application
 must coordinate separately. RAM storage follows Omeify's array ownership policy
 and is not governed by the per-view source-sample budget.
 
@@ -272,7 +272,7 @@ report Python 3.13 `forkpty` deprecation warnings, not application failures.
 Environment: Linux, Python 3.13.5, NumPy 2.3.5, SciPy 1.17.0, Pillow 12.3.0,
 pypdfium2 5.8.0, tifffile 2026.5.15, prompt_toolkit 3.0.52, pytest 9.0.2.
 Tests use the actual Omeify 0.21.0 source (`6d9f5ff`), not an imitation of its API.
-All reconstructed baseline ttwhy file byte sizes were checked against the supplied
+All reconstructed baseline twhy file byte sizes were checked against the supplied
 snapshot. The patch is checked against a fresh baseline reconstruction. Wheel and
 source-distribution builds succeed with the installed setuptools backend.
 
@@ -479,7 +479,7 @@ not require a naming double. A complete checkout validation with real coolname i
 
 ```bash
 python -m pip install -e '.[dev,pdf]'
-python -m pytest --cov=ttwhy --cov-report=term-missing
+python -m pytest --cov=twhy --cov-report=term-missing
 ```
 
 Do not interpret these checks as an installed-coolname integration test or a test
@@ -608,11 +608,11 @@ packages. The focused 99-test run includes the existing GeoJSON tests with a
 temporary, out-of-tree naming double, not the published coolname distribution.
 The full Omeify-backed tests, native desktop clipboard acceptance, and live
 macOS/Windows terminal input were not run here. The out-of-tree naming double
-is not packaged in ttwhy or included in this patch.
+is not packaged in twhy or included in this patch.
 
 ## Aperio SVS file ingress (October 2026)
 
-This patch targets the attached ttwhy `d3514ef7ad58e59eec3b1fc821d7516398aa8010`
+This patch targets the attached twhy `d3514ef7ad58e59eec3b1fc821d7516398aa8010`
 snapshot. It selects Omeify's public `AperioSVSReader` for TIFF-signature files
 with a case-insensitive `.svs` suffix and retains `OMETiffReader` for other TIFF
 paths. Existing TIFF document-series navigation, RGB presentation, regional
@@ -623,7 +623,7 @@ exports this reader.
 The TIFF signature check precedes suffix dispatch. `AperioSVSReader` validates
 the actual vendor container and fails on a renamed non-Aperio TIFF. SVS files
 with a different extension are not automatically recognized. No TIFF source
-pixels are decoded using Pillow, materialized as a whole slide by ttwhy, or
+pixels are decoded using Pillow, materialized as a whole slide by twhy, or
 converted into an in-memory dyadic pyramid. Omeify's native levels are used
 when present; unavailable/unknown pyramid scales remain subject to the same
 labelled approximate mapping and read-budget limits as other TIFFs.
@@ -643,12 +643,12 @@ tests requiring it are skipped here, not counted as executed. A real production
 Aperio JPEG/JPEG 2000-compressed SVS (and macOS/remote terminal behavior) still
 needs an end-to-end smoke test. Do not infer diagnostic color correctness or a
 process-memory upper bound from the synthetic fixture. Run the suite in the
-normal ttwhy environment and inspect a real scanner file before relying on this
+normal twhy environment and inspect a real scanner file before relying on this
 format in production.
 
 ## Interactive whole-image zoom-out through bounded sampled overviews (October 2026)
 
-This update applies to the supplied ttwhy `34444adc163b3dd51d53e83beefeacd423057556`
+This update applies to the supplied twhy `34444adc163b3dd51d53e83beefeacd423057556`
 snapshot. The original `Viewport` already allowed letterboxed negative origins;
 the issue was the source-read budget. When an SVS/OME-TIFF coarsest level was
 still too large, initial `fit()` zoomed to a center crop and the viewer rejected
@@ -852,8 +852,8 @@ not production JPEG-SVS, high-latency storage, or native macOS terminal testing.
 
 ## Remote/Zarr ingestion and package identity (October 24, 2026)
 
-Against snapshot `3946c7a`, distribution metadata becomes `ttwhy-viewer`;
-CLI and import retain `ttwhy`. Omeify minimum is 0.22.1, including Zarr reader,
+Against snapshot `3946c7a`, distribution metadata becomes `twhy`;
+CLI and import retain `twhy`. Omeify minimum is 0.22.1, including Zarr reader,
 and optional `[s3]` supplies s3fs through Omeify. The remote resource boundary
 stages only bounded single-file objects, not Zarr stores. PDF staging persists
 through document navigation, worker refinement, and clipping. Shifted pyramid
@@ -994,8 +994,8 @@ exercised in this pass.
 This packaging-only update targets the supplied `08f65f2` repository snapshot.
 `pypdfium2>=4.30,<6` moves from the opt-in `[pdf]` extra into core dependencies,
 and `[pdf]` is removed. S3 remains opt-in under `[s3]`. The standard install
-`python -m pip install ttwhy-viewer` now includes PDF support. CLI-only users
-can install with `pipx install ttwhy-viewer` or `uv tool install ttwhy-viewer`.
+`python -m pip install twhy` now includes PDF support. CLI-only users
+can install with `pipx install twhy` or `uv tool install twhy`.
 
 PDFium remains lazy-imported when PDF content is opened. Image rendering, page
 navigation, memory limits, PDF worker management, source decoding, Python minimum

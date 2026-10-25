@@ -14,17 +14,17 @@ from prompt_toolkit.data_structures import Point
 from test_viewer import eventually, ready, running, send
 from test_document_navigation import browsing, GatedWorkers
 from test_image_input import write_pdf
-from ttwhy import TextImage, TextRenderer
-from ttwhy.cli import main
-from ttwhy.pdf_text import extract_pdf_text
-from ttwhy.text_clip import (
+from twhy import TextImage, TextRenderer
+from twhy.cli import main
+from twhy.pdf_text import extract_pdf_text
+from twhy.text_clip import (
     clipboard_delivery, osc52_sequence, validate_clip_path, write_text_clip,
 )
-from ttwhy.viewer.clipping import clip_options
-from ttwhy.viewer.controls import clip_fragments
-from ttwhy.viewer.rendering import terminal_lines
-from ttwhy.geojson_clip import polygon_feature, rectangle_feature
-from ttwhy.viewer.selection import PolygonSelection, RectangleSelection
+from twhy.viewer.clipping import clip_options
+from twhy.viewer.controls import clip_fragments
+from twhy.viewer.rendering import terminal_lines
+from twhy.geojson_clip import polygon_feature, rectangle_feature
+from twhy.viewer.selection import PolygonSelection, RectangleSelection
 
 
 @pytest.fixture
@@ -176,7 +176,7 @@ def clean_clipboard_env(monkeypatch):
 
 
 def test_auto_local_mac_helper_is_optional_no_shell(monkeypatch):
-    import ttwhy.text_clip as module
+    import twhy.text_clip as module
     clean_clipboard_env(monkeypatch)
     monkeypatch.setattr(module.sys, "platform", "darwin")
     monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/" + name)
@@ -196,7 +196,7 @@ def test_remote_and_multiplexer_skip_host_clipboard(monkeypatch, envkey):
     monkeypatch.setenv(envkey, "present")
     def prohibited(*a, **kw):
         raise AssertionError("Do not modify a remote desktop clipboard")
-    monkeypatch.setattr("ttwhy.text_clip.shutil.which", prohibited)
+    monkeypatch.setattr("twhy.text_clip.shutil.which", prohibited)
     result = clipboard_delivery("local destination")
     assert result.sequence == osc52_sequence("local destination")
     assert "Sent" in result.message and "Copied" not in result.message
@@ -208,7 +208,7 @@ def test_remote_and_multiplexer_skip_host_clipboard(monkeypatch, envkey):
     ("linux", {"DISPLAY": ":0"}, "xclip", "utf-8"),
 ])
 def test_optional_local_clipboard_helpers(monkeypatch, platform, env, expected, encoding):
-    import ttwhy.text_clip as module
+    import twhy.text_clip as module
     clean_clipboard_env(monkeypatch)
     monkeypatch.setattr(module.sys, "platform", platform)
     for key, value in env.items():
@@ -223,11 +223,11 @@ def test_optional_local_clipboard_helpers(monkeypatch, platform, env, expected, 
 def test_helper_failure_falls_back_and_off_has_no_side_effect(monkeypatch):
     import subprocess
     clean_clipboard_env(monkeypatch)
-    monkeypatch.setattr("ttwhy.text_clip.sys.platform", "darwin")
-    monkeypatch.setattr("ttwhy.text_clip.shutil.which", lambda name: name)
+    monkeypatch.setattr("twhy.text_clip.sys.platform", "darwin")
+    monkeypatch.setattr("twhy.text_clip.shutil.which", lambda name: name)
     def failure(*a, **kw):
         raise subprocess.TimeoutExpired(a[0], 2)
-    monkeypatch.setattr("ttwhy.text_clip.subprocess.run", failure)
+    monkeypatch.setattr("twhy.text_clip.subprocess.run", failure)
     assert clipboard_delivery("abc").sequence == osc52_sequence("abc")
     assert clipboard_delivery("abc", "off").sequence == ""
     monkeypatch.setenv("TERM", "dumb")
@@ -273,7 +273,7 @@ def test_clip_input_alias_and_output_symlink_safety(tmp_path):
 
 
 def test_clip_file_destination_rechecked_before_commit(tmp_path, monkeypatch):
-    import ttwhy.text_clip as module
+    import twhy.text_clip as module
     source, out = tmp_path / "source", tmp_path / "clip"
     source.write_bytes(b"keep")
     original = module.validate_clip_path
@@ -353,7 +353,7 @@ def write_text_pdf(path, *, rotation=0, cropped=False):
 @pytest.mark.parametrize("cropped", [False, True])
 @pytest.mark.parametrize("dpi", [144, 300, 600])
 def test_native_pdf_text_rectangles_rotation_crop_and_fractional_extents(tmp_path, rotation, cropped, dpi):
-    from ttwhy.image_input import pdf_raster_shape
+    from twhy.image_input import pdf_raster_shape
     pytest.importorskip("pypdfium2")
     path = write_text_pdf(tmp_path / "text.pdf", rotation=rotation, cropped=cropped)
     height, width = pdf_raster_shape(path, 1, dpi)
@@ -521,7 +521,7 @@ async def test_pdf_copy_extracts_words_not_blocks_and_blank_does_not_overwrite(t
 
 async def test_pdf_refinement_waits_until_selection_exits(tmp_path, monkeypatch):
     pytest.importorskip("pypdfium2")
-    monkeypatch.setattr("ttwhy.viewer.navigation.PdfWorkers", GatedWorkers)
+    monkeypatch.setattr("twhy.viewer.navigation.PdfWorkers", GatedWorkers)
     path = write_text_pdf(tmp_path / "refinement.pdf")
     async with browsing(path, pdf_max_dpi=600) as (nav, viewer, pipe, _, task):
         await eventually(lambda: nav._workers is not None and len(nav._workers.calls) == 2, task)
@@ -557,7 +557,7 @@ async def test_explicit_screen_source_on_pdf_is_not_native_extraction(tmp_path, 
     async with browsing(path, pdf_max_dpi=144) as (_, viewer, pipe, _, task):
         def prohibited(*a, **kw):
             raise AssertionError("Screen copying must not decode PDF text")
-        monkeypatch.setattr("ttwhy.viewer.clipping.extract_pdf_text", prohibited)
+        monkeypatch.setattr("twhy.viewer.clipping.extract_pdf_text", prohibited)
         viewer.clipping.clip_source = "screen"
         viewer.clipping.clipboard = "off"
         out = tmp_path / "screen.txt"
@@ -581,7 +581,7 @@ async def test_save_failure_retains_view_and_selection(rgb, tmp_path):
 
 
 async def test_pdf_worker_cancellation_during_successful_finalizer(tmp_path, monkeypatch):
-    from ttwhy.pdf_workers import PdfWorkers
+    from twhy.pdf_workers import PdfWorkers
     pytest.importorskip("pypdfium2")
     path = write_pdf(tmp_path / "cleanup.pdf")
     workers = PdfWorkers()
@@ -625,7 +625,7 @@ async def test_accepted_save_finishes_on_immediate_quit(rgb, tmp_path):
 async def test_saving_succeeds_even_if_clipboard_request_is_too_large(rgb, tmp_path, monkeypatch):
     out = tmp_path / "fallback.txt"
     monkeypatch.setenv("TERM", "xterm-256color")
-    monkeypatch.setattr("ttwhy.text_clip.MAX_OSC52_BYTES", 1)
+    monkeypatch.setattr("twhy.text_clip.MAX_OSC52_BYTES", 1)
     async with running(rgb[0], output_text_clip=out, clipboard="osc52") as (viewer, pipe, _, task):
         await send(pipe, "s\x1b[H \x1b[Fy", viewer, task)
         await eventually(lambda: not viewer.clipping.busy and out.exists(), task)
@@ -636,7 +636,7 @@ async def test_saving_succeeds_even_if_clipboard_request_is_too_large(rgb, tmp_p
 
 async def test_clip_worker_does_not_block_selection_and_coalesces_requests(rgb, tmp_path, monkeypatch):
     import threading
-    import ttwhy.viewer.clipping as module
+    import twhy.viewer.clipping as module
     entered, release = threading.Event(), threading.Event()
     original = module.write_text_clip
     calls = []
@@ -669,7 +669,7 @@ async def test_clip_worker_does_not_block_selection_and_coalesces_requests(rgb, 
 def test_png_clip_exact_half_block_rgb_and_no_selection_overlay():
     from io import BytesIO
     from PIL import Image
-    from ttwhy.png_clip import render_clip_png
+    from twhy.png_clip import render_clip_png
 
     chars = np.array([list("▀▀ "), list("▀▀▀")])
     foreground = np.array([[[255, 0, 0], [0, 255, 0], [0, 0, 0]],
@@ -694,7 +694,7 @@ def test_png_clip_exact_half_block_rgb_and_no_selection_overlay():
 def test_png_clip_text_and_braille_have_visible_ink():
     from io import BytesIO
     from PIL import Image
-    from ttwhy.png_clip import render_clip_png
+    from twhy.png_clip import render_clip_png
 
     frame = TextImage(np.array([["A", "⠁", " "]]),
                       foreground=np.array([[[30, 150, 240], [255, 255, 255], [0, 0, 0]]],
@@ -707,7 +707,7 @@ def test_png_clip_text_and_braille_have_visible_ink():
 
 
 def test_png_clip_rejects_unbounded_output_before_allocating():
-    from ttwhy.png_clip import render_clip_png
+    from twhy.png_clip import render_clip_png
 
     with pytest.raises(ValueError, match="limit"):
         render_clip_png(TextImage(np.full((40, 40), "#")),
@@ -715,8 +715,8 @@ def test_png_clip_rejects_unbounded_output_before_allocating():
 
 
 def test_png_clip_atomic_file_and_hardlink_protection(tmp_path):
-    from ttwhy.image_clip import write_png_clip
-    from ttwhy.png_clip import render_clip_png
+    from twhy.image_clip import write_png_clip
+    from twhy.png_clip import render_clip_png
 
     source, output = tmp_path / "image.png", tmp_path / "detail.png"
     source.write_bytes(b"original source bytes")
@@ -740,8 +740,8 @@ def test_png_clip_atomic_file_and_hardlink_protection(tmp_path):
 
 
 def test_image_clipboard_local_mac_uses_png_data_not_filename(monkeypatch):
-    from ttwhy import image_clip
-    from ttwhy.png_clip import render_clip_png
+    from twhy import image_clip
+    from twhy.png_clip import render_clip_png
     clean_clipboard_env(monkeypatch)
     monkeypatch.setattr(image_clip.sys, "platform", "darwin")
     monkeypatch.setattr(image_clip.shutil, "which", lambda exe: "/usr/bin/osascript")
@@ -760,8 +760,8 @@ def test_image_clipboard_local_mac_uses_png_data_not_filename(monkeypatch):
 
 
 def test_image_clipboard_linux_native_and_remote_fallback(monkeypatch):
-    from ttwhy import image_clip
-    from ttwhy.png_clip import render_clip_png
+    from twhy import image_clip
+    from twhy.png_clip import render_clip_png
     clean_clipboard_env(monkeypatch)
     monkeypatch.setattr(image_clip.sys, "platform", "linux")
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
@@ -784,8 +784,8 @@ def test_image_clipboard_linux_native_and_remote_fallback(monkeypatch):
 async def test_png_selection_keyboard_copies_and_saves_real_image(rgb, tmp_path, monkeypatch):
     from io import BytesIO
     from PIL import Image
-    from ttwhy.text_clip import ClipboardDelivery
-    from ttwhy.viewer import clipping
+    from twhy.text_clip import ClipboardDelivery
+    from twhy.viewer import clipping
 
     output = tmp_path / "share.png"
     captured = []

@@ -16,13 +16,13 @@ import pytest
 from click.testing import CliRunner
 from PIL import Image as PILImage
 
-from ttwhy import open_image
-from ttwhy.cli import main
-from ttwhy.image_document import ImageDocument
-from ttwhy.image_input import image_kind
-from ttwhy.source_input import display_name, is_zarr_input, resolve_input, s3_options
-from ttwhy.view_info import ViewInfo
-from ttwhy.viewer.file_viewer import view_file
+from twhy import open_image
+from twhy.cli import main
+from twhy.image_document import ImageDocument
+from twhy.image_input import image_kind
+from twhy.source_input import display_name, is_zarr_input, resolve_input, s3_options
+from twhy.view_info import ViewInfo
+from twhy.viewer.file_viewer import view_file
 
 
 @contextmanager
@@ -105,7 +105,7 @@ def test_http_pdf_page_snapshot_and_lifetime(tmp_path, monkeypatch):
                                            "--columns", "20", "--rows", "7"])
         assert result.exit_code == 0, (result.output, result.exception)
         assert len(result.stdout.splitlines()) == 7
-        from ttwhy.viewer import file_viewer
+        from twhy.viewer import file_viewer
         observed = []
 
         async def check_live(path, **kwargs):
@@ -168,8 +168,8 @@ def test_zarr_reader_routes_group_series_and_s3_options(monkeypatch):
 def test_shifted_levels_never_selected_for_viewing():
     """An off-grid nearest pyramid must not move data or overview sample positions."""
     from omeify import ImageLevel, MultichannelImage
-    from ttwhy import ViewSession, TextRenderer
-    from ttwhy.viewport import Viewport
+    from twhy import ViewSession, TextRenderer
+    from twhy.viewport import Viewport
 
     data = np.arange(32*32, dtype=np.uint16).reshape(32, 32)
     # Nearest-neighbor level has nonzero pixel-edge origin relative to the base.

@@ -112,7 +112,7 @@ def render_structured(
         raise ValueError('Structured rendering mode must be detail or shape')
     rgb = np.repeat(pixels[..., None], 3, axis=-1) if pixels.ndim == 2 else pixels
     valid = np.isfinite(rgb).all(axis=-1)
-    # Peak signal intentionally follows ttwhy's fluorescence composition semantics.
+    # Peak signal intentionally follows twhy's fluorescence composition semantics.
     rgb = np.where(valid[..., None], rgb, 0).astype(np.float32)
     brightness = rgb.max(axis=-1)
     ink = np.where(valid, 1 - brightness if invert else brightness, 0)

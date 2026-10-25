@@ -144,7 +144,7 @@ retain the OME reader. No fallback on decoder failure is attempted. the remainin
 Pillow with a fixed raster-format allowlist. No decoder exception triggers a
 fallback, and formats such as EPS cannot invoke converter subprocesses. The
 Pillow and PDFium are both standard installation dependencies, but are
-lazy-imported only for the relevant formats. Even `ttwhy.open_image` remains
+lazy-imported only for the relevant formats. Even `twhy.open_image` remains
 importable without loading those decoders.
 
 One selected raster frame is loaded, orientation-corrected, and composited over
@@ -331,7 +331,7 @@ to the original observation. Closing the display does not close the caller's ima
 A session rejects access after its source is closed and reopened, including cache hits.
 
 The provider's cache is cleared on channel/level switches. No independent channel
-cache is assumed in Omeify 0.21.0; providers own their cache implementation. ttwhy's own preview LRU can retain multiple selections and viewports.
+cache is assumed in Omeify 0.21.0; providers own their cache implementation. twhy's own preview LRU can retain multiple selections and viewports.
 Changing intensity windows does not change preview-cache keys.
 
 There is no on-disk cache or implicitly written user configuration. Errors do not

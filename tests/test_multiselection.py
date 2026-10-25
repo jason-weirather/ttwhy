@@ -17,16 +17,16 @@ from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 
 from conftest import write_pyramid
 from test_viewer import eventually, ready, running, send
-from ttwhy import TextImage, TextRenderer, Viewport
-from ttwhy import annotation_identity
-from ttwhy.annotation_identity import IdentityFactory
-from ttwhy.geojson_clip import geometry_feature
-from ttwhy.png_clip import render_clip_png
-from ttwhy.selection_geometry import SelectionGeometry, union_mask
-from ttwhy.viewer import Viewer
-from ttwhy.viewer.controls import clip_fragments
-from ttwhy.viewer.rendering import terminal_lines
-from ttwhy.viewer.selection_set import SelectionSet
+from twhy import TextImage, TextRenderer, Viewport
+from twhy import annotation_identity
+from twhy.annotation_identity import IdentityFactory
+from twhy.geojson_clip import geometry_feature
+from twhy.png_clip import render_clip_png
+from twhy.selection_geometry import SelectionGeometry, union_mask
+from twhy.viewer import Viewer
+from twhy.viewer.controls import clip_fragments
+from twhy.viewer.rendering import terminal_lines
+from twhy.viewer.selection_set import SelectionSet
 
 REAL_RANDOM_NAME = annotation_identity.random_name
 
@@ -246,8 +246,8 @@ async def test_union_text_ansi_png_copy_save_and_empty_draft(fake_viewer, tmp_pa
         assert payload(viewer) == text
         assert out.read_text() == text + "\n"
     captured = []
-    from ttwhy.text_clip import ClipboardDelivery
-    monkeypatch.setattr("ttwhy.viewer.clipping.clipboard_png",
+    from twhy.text_clip import ClipboardDelivery
+    monkeypatch.setattr("twhy.viewer.clipping.clipboard_png",
                         lambda data, mode: captured.append(data) or ClipboardDelivery("PNG request"))
     out = tmp_path / "selected.png"
     clip.submit_image(path=out)
@@ -405,9 +405,9 @@ async def test_128_channel_paging_endpoints_and_mouse_selection(tmp_path):
 async def test_polygon_has_all_eight_export_bindings(rgb, tmp_path, monkeypatch, key):
     paths = {False: tmp_path / "out.txt", True: tmp_path / "out.ansi",
              "png": tmp_path / "out.png", "geojson": tmp_path / "out.geojson"}
-    from ttwhy.text_clip import ClipboardDelivery
+    from twhy.text_clip import ClipboardDelivery
     images = []
-    monkeypatch.setattr("ttwhy.viewer.clipping.clipboard_png",
+    monkeypatch.setattr("twhy.viewer.clipping.clipboard_png",
                         lambda data, mode: images.append(data) or ClipboardDelivery("PNG request"))
     async with running(rgb[0], renderer=TextRenderer(mode="blocks"), clipboard="osc52",
                        output_text_clip=paths[False], output_ansi_clip=paths[True],
@@ -469,7 +469,7 @@ async def test_pdf_multiple_areas_use_masked_screen_not_a_leaking_bounding_box(t
         assert clip.source_label == "screen text"
         def prohibited(*args, **kwargs):
             raise AssertionError("Do not include PDF text between separate selected areas")
-        monkeypatch.setattr("ttwhy.viewer.clipping.extract_pdf_text", prohibited)
+        monkeypatch.setattr("twhy.viewer.clipping.extract_pdf_text", prohibited)
         expected = clip.selection.clip().to_text()
         await send(pipe, "y", viewer, task)
         await eventually(lambda: out.exists() and not clip.busy, task)
@@ -478,7 +478,7 @@ async def test_pdf_multiple_areas_use_masked_screen_not_a_leaking_bounding_box(t
 
 async def test_region_snapshot_pins_names_while_saving(fake_viewer, tmp_path, monkeypatch):
     import threading
-    import ttwhy.viewer.clipping as module
+    import twhy.viewer.clipping as module
     clip = fake_viewer.clipping
     draw_rect(clip.selection)
     name, identity = clip.geojson_name, clip.selection.active.identity.id

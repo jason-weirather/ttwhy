@@ -122,7 +122,7 @@ def _download(url: str, destination: Path, maximum: int, *, endpoint_url: str | 
             import s3fs  # noqa: F401, the optional S3 transport
             import fsspec
         except ImportError as error:
-            raise RuntimeError('S3 input requires: python -m pip install "ttwhy-viewer[s3]"') from error
+            raise RuntimeError('S3 input requires: python -m pip install "twhy[s3]"') from error
         # One object stream, not a whole-bucket listing. A bounded read prevents
         # unbounded temporary disk use even when object metadata is incorrect.
         try:
@@ -134,7 +134,7 @@ def _download(url: str, destination: Path, maximum: int, *, endpoint_url: str | 
             raise OSError("Cannot read remote S3 object; check credentials and endpoint") from error
         return
     try:
-        request = Request(url, headers={"Accept-Encoding": "identity", "User-Agent": "ttwhy-viewer"})
+        request = Request(url, headers={"Accept-Encoding": "identity", "User-Agent": "twhy"})
         with urlopen(request, timeout=20) as response:
             final = urlsplit(response.geturl())
             if final.scheme not in {"http", "https"}:
@@ -180,7 +180,7 @@ def resolve_input(source: str | Path, *, max_remote_mib: float = DEFAULT_MAX_REM
         # Preserve only the suffix needed for validated Aperio routing. A filename
         # (or signed query) is never used as a filesystem path or log message.
         suffix = extension if re.fullmatch(r"\.[a-z0-9]{1,10}", extension) else ".bin"
-        with TemporaryDirectory(prefix="ttwhy-input-") as directory:
+        with TemporaryDirectory(prefix="twhy-input-") as directory:
             path = Path(directory) / ("download" + suffix)
             _download(url, path, maximum, endpoint_url=s3_endpoint_url,
                       s3_anonymous=s3_anonymous)

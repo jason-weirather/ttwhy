@@ -12,14 +12,14 @@ import pytest
 def test_real_terminal_mouse_resize_and_exit(rgb):
     pexpect = pytest.importorskip("pexpect")
     terminal = pexpect.spawn(
-        sys.executable, ["-m", "ttwhy", str(rgb[0])], encoding="utf-8", timeout=10,
+        sys.executable, ["-m", "twhy", str(rgb[0])], encoding="utf-8", timeout=10,
         dimensions=(30, 110),
         env={**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"},
     )
     transcript = io.StringIO()
     terminal.logfile_read = transcript
     try:
-        terminal.expect("ttwhy")
+        terminal.expect("twhy")
         terminal.expect(r"L[0-9]")
         terminal.send("\x1b[<64;25;12M")
         time.sleep(.15)
@@ -48,7 +48,7 @@ def test_real_terminal_mouse_resize_and_exit(rgb):
 @pytest.mark.parametrize("mode", ["detail", "shape", "simple"])
 def test_terminal_interrupt_restores_screen(mif, mode):
     pexpect = pytest.importorskip("pexpect")
-    terminal = pexpect.spawn(sys.executable, ["-m", "ttwhy", str(mif[0]), "--mode", mode],
+    terminal = pexpect.spawn(sys.executable, ["-m", "twhy", str(mif[0]), "--mode", mode],
                              encoding="utf-8",
                              timeout=10, dimensions=(20, 80),
                              env={**os.environ, "TERM": "xterm-256color"})
@@ -79,7 +79,7 @@ def test_real_cli_auto_selects_terminal_renderer(mif, mode_env, expected):
     env = {k: v for k, v in env.items() if v != '' or k not in
            {"NO_COLOR", "COLORTERM", "PROMPT_TOOLKIT_COLOR_DEPTH"}}
     terminal = pexpect.spawn(
-        sys.executable, ["-m", "ttwhy", str(mif[0])], encoding="utf-8", timeout=15,
+        sys.executable, ["-m", "twhy", str(mif[0])], encoding="utf-8", timeout=15,
         dimensions=(20, 80), env=env,
     )
     try:
@@ -109,7 +109,7 @@ def test_new_file_formats_real_cli_auto_zoom_and_terminal_restoration(tmp_path, 
     env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
     env.pop("NO_COLOR", None)
     env.pop("PROMPT_TOOLKIT_COLOR_DEPTH", None)
-    terminal = pexpect.spawn(sys.executable, ["-m", "ttwhy", str(path)], encoding="utf-8",
+    terminal = pexpect.spawn(sys.executable, ["-m", "twhy", str(path)], encoding="utf-8",
                              dimensions=(24, 100), env=env, timeout=15)
     transcript = io.StringIO()
     terminal.logfile_read = transcript
@@ -147,7 +147,7 @@ def test_document_navigation_in_real_terminal(tmp_path, kind):
     env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
     env.pop("NO_COLOR", None)
     env.pop("PROMPT_TOOLKIT_COLOR_DEPTH", None)
-    terminal = pexpect.spawn(sys.executable, ["-m", "ttwhy", str(path), *options],
+    terminal = pexpect.spawn(sys.executable, ["-m", "twhy", str(path), *options],
                              encoding="utf-8", dimensions=(26, 110), env=env, timeout=15)
     transcript = io.StringIO()
     terminal.logfile_read = transcript
@@ -192,7 +192,7 @@ def test_real_terminal_rectangle_copy_and_clip_files(tmp_path, kind):
     env.pop("NO_COLOR", None)
     env.pop("PROMPT_TOOLKIT_COLOR_DEPTH", None)
     terminal = pexpect.spawn(
-        sys.executable, ["-m", "ttwhy", str(path), *options,
+        sys.executable, ["-m", "twhy", str(path), *options,
                          "--clipboard", "osc52", "--output-text-clip", str(text_path),
                          "--output-ansi-clip", str(ansi_path)], encoding="utf-8",
         dimensions=(26, 110), env=env, timeout=15,
@@ -249,7 +249,7 @@ def test_terminal_mixed_regions_private_geojson_png_and_ascii(tmp_path):
     env.pop("NO_COLOR", None)
     env.pop("PROMPT_TOOLKIT_COLOR_DEPTH", None)
     terminal = pexpect.spawn(
-        sys.executable, ["-m", "ttwhy", str(source), "--clipboard", "off",
+        sys.executable, ["-m", "twhy", str(source), "--clipboard", "off",
                          "--output-geojson-clip", str(geo), "--output-png-clip", str(png),
                          "--output-text-clip", str(text), "--output-ansi-clip", str(ansi)],
         encoding="utf-8", dimensions=(26, 110), env=env, timeout=15,

@@ -19,7 +19,7 @@ GOLDENS = {
 
 @pytest.mark.parametrize("rgb,color,invert", GOLDENS)
 def test_original_ascii_bytes_are_preserved(rgb, color, invert):
-    from ttwhy import TextRenderer
+    from twhy import TextRenderer
 
     y, x = np.mgrid[:19, :37]
     pixels = ((x * 17 + y * 23) % 256).astype(float) / 255

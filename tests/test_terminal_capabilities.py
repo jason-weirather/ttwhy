@@ -3,7 +3,7 @@
 import pytest
 from prompt_toolkit.output import ColorDepth
 
-from ttwhy.terminal_capabilities import (
+from twhy.terminal_capabilities import (
     available_color_depth, configured_color_depth, resolve_auto_mode,
 )
 
@@ -67,7 +67,7 @@ def test_default_terminal_depth_uses_toolkit_not_assumed_truecolor(monkeypatch):
     monkeypatch.delenv('COLORTERM', raising=False)
     monkeypatch.delenv('NO_COLOR', raising=False)
     monkeypatch.delenv('PROMPT_TOOLKIT_COLOR_DEPTH', raising=False)
-    monkeypatch.setattr('ttwhy.terminal_capabilities.create_output', lambda: Output())
+    monkeypatch.setattr('twhy.terminal_capabilities.create_output', lambda: Output())
     assert configured_color_depth() is None
     assert available_color_depth() == ColorDepth.DEPTH_8_BIT
 
@@ -79,8 +79,8 @@ def test_cli_one_bit_environment_initializes_renderer_color(tmp_path, monkeypatc
     from types import SimpleNamespace
     from click.testing import CliRunner
     from PIL import Image
-    import ttwhy.cli as cli
-    import ttwhy.viewer.file_viewer as file_viewer
+    import twhy.cli as cli
+    import twhy.viewer.file_viewer as file_viewer
 
     path = tmp_path / "mono.png"
     Image.new("RGB", (4, 4), (100, 140, 190)).save(path)

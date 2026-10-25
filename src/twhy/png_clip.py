@@ -77,7 +77,7 @@ def render_clip_png(frame: TextImage, *, cell_width: int = CELL_WIDTH,
             x = column * cell_width
             char = str(frame.characters[row, column])
             if char == " ":
-                # ttwhy's canvas is black; unpainted block cells stay black.
+                # twhy's canvas is black; unpainted block cells stay black.
                 continue
             foreground = ((238, 238, 238) if frame.foreground is None else
                           tuple(int(channel) for channel in frame.foreground[row, column]))

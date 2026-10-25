@@ -9,11 +9,11 @@ import pytest
 from omeify import ImageLevel, MultichannelImage, PixelSize, RGBImage
 from prompt_toolkit.input import create_pipe_input
 
-from ttwhy import ReadBudgetExceeded, TextRenderer, Viewport, ViewSession, open_image
-from ttwhy.runtime_overview import OverviewBuilder, OverviewSpec
-from ttwhy.view_info import PyramidLevel
-from ttwhy.viewer import Viewer
-from ttwhy.viewer.rendering import FrameRequest, make_frame
+from twhy import ReadBudgetExceeded, TextRenderer, Viewport, ViewSession, open_image
+from twhy.runtime_overview import OverviewBuilder, OverviewSpec
+from twhy.view_info import PyramidLevel
+from twhy.viewer import Viewer
+from twhy.viewer.rendering import FrameRequest, make_frame
 from conftest import write_pyramid
 from test_sampled_overview import GradientSlide, SizedOutput
 from test_svs import synthetic_svs
@@ -296,7 +296,7 @@ async def test_viewer_refines_same_camera_keeps_contrast_and_frozen_selection(mo
             if not allowed.is_set():
                 # Do not block the worker in this test; pause preparation so the
                 # foreground frame is predictably available before publication.
-                from ttwhy.runtime_overview import OverviewProgress
+                from twhy.runtime_overview import OverviewProgress
                 return OverviewProgress()
             return original(channels)
 
@@ -411,8 +411,8 @@ def test_odd_declared_native_scale_and_anisotropy_are_not_reinferred():
 
 @pytest.mark.asyncio
 async def test_series_change_waits_for_chunk_then_drops_old_overview(tmp_path, monkeypatch):
-    from ttwhy.image_document import ImageDocument
-    from ttwhy.viewer.navigation import DocumentNavigation
+    from twhy.image_document import ImageDocument
+    from twhy.viewer.navigation import DocumentNavigation
     from test_document_navigation import write_series
 
     path = tmp_path / "series.ome.tif"
@@ -501,7 +501,7 @@ async def test_quit_during_chunk_finishes_no_later_chunks(monkeypatch):
 def test_cli_forwards_independent_overview_budgets(tmp_path, monkeypatch):
     import sys
     from click.testing import CliRunner
-    from ttwhy.cli import main
+    from twhy.cli import main
 
     path = tmp_path / "image.png"
     path.write_bytes(b"not decoded by this forwarding test")
@@ -510,7 +510,7 @@ def test_cli_forwards_independent_overview_budgets(tmp_path, monkeypatch):
     async def fake_view_file(*args, **kwargs):
         received.update(kwargs)
 
-    monkeypatch.setattr("ttwhy.viewer.file_viewer.view_file", fake_view_file)
+    monkeypatch.setattr("twhy.viewer.file_viewer.view_file", fake_view_file)
     monkeypatch.setattr(type(sys.stdout), "isatty", lambda self: True)
     # CliRunner replaces stdin/out, so it supplies the TTY seam explicitly here.
     import click.testing
@@ -527,7 +527,7 @@ def test_cli_forwards_independent_overview_budgets(tmp_path, monkeypatch):
 
 def test_snapshot_can_disable_quick_build_and_still_show_whole_image(mif, monkeypatch):
     from click.testing import CliRunner
-    from ttwhy.cli import main
+    from twhy.cli import main
 
     def forbidden(*args, **kwargs):
         pytest.fail("Startup scan disabled; snapshot should use a sampled fallback")
@@ -554,7 +554,7 @@ def test_svs_cached_overview_in_real_terminal(tmp_path):
     env.pop("NO_COLOR", None)
     env.pop("PROMPT_TOOLKIT_COLOR_DEPTH", None)
     child = pexpect.spawn(
-        sys.executable, ["-m", "ttwhy", str(path), "--max-read-pixels", "500"],
+        sys.executable, ["-m", "twhy", str(path), "--max-read-pixels", "500"],
         dimensions=(30, 120), encoding="utf-8", env=env, timeout=15,
     )
     transcript = io.StringIO()

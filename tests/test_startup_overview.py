@@ -9,11 +9,11 @@ from click.testing import CliRunner
 from omeify import MultichannelImage, RGBImage
 from prompt_toolkit.input import create_pipe_input
 
-from ttwhy import TextRenderer, Viewport, ViewSession
-from ttwhy.cli import main
-from ttwhy.startup_overview import prepare_fast_overview, startup_fit
-from ttwhy.runtime_overview import DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS
-from ttwhy.viewer import Viewer
+from twhy import TextRenderer, Viewport, ViewSession
+from twhy.cli import main
+from twhy.startup_overview import prepare_fast_overview, startup_fit
+from twhy.runtime_overview import DEFAULT_OVERVIEW_MAX_SOURCE_PIXELS
+from twhy.viewer import Viewer
 from test_sampled_overview import GradientSlide, SizedOutput
 
 
@@ -99,7 +99,7 @@ async def test_large_fast_slide_first_image_is_cached_not_sampled(monkeypatch):
     with RGBImage(source) as image, ViewSession(image) as session, \
             create_pipe_input() as pipe:
         assert session.quick_overview_eligible()  # Regression: previously False.
-        module = import_module("ttwhy.viewer.viewer")
+        module = import_module("twhy.viewer.viewer")
         original = module.make_frame
         first_frames = []
 
@@ -263,7 +263,7 @@ def test_snapshot_full_slide_from_quick_cache_and_sparse_fallback(mif):
 
 
 def test_snapshot_deadline_is_checked_between_chunks(monkeypatch, mif):
-    import ttwhy.startup_overview as startup
+    import twhy.startup_overview as startup
 
     clock = iter([0, .3, .6, .9, 1.2])
     monkeypatch.setattr(startup, "monotonic", lambda: next(clock, 1.3))
@@ -289,7 +289,7 @@ def test_scan_preflight_respects_memory_and_work_limits():
 @pytest.mark.parametrize("kind", ["svs", "ome"])
 def test_real_tiff_reader_uses_quick_full_coverage_reduction(tmp_path, kind):
     """Both vendor TIFF readers share the same actual regional decoding path."""
-    from ttwhy import open_image
+    from twhy import open_image
     from test_svs import synthetic_svs
     from conftest import write_pyramid
 
@@ -347,7 +347,7 @@ def test_real_svs_terminal_opens_full_sampled_view_without_a_fit_key(tmp_path):
     env.pop("PROMPT_TOOLKIT_COLOR_DEPTH", None)
     child = pexpect.spawn(
         sys.executable,
-        ["-m", "ttwhy", str(path), "--max-read-pixels", "96",
+        ["-m", "twhy", str(path), "--max-read-pixels", "96",
          "--overview-cache-mib", "0", "--startup-overview-seconds", "0"],
         dimensions=(30, 120), encoding="utf-8", env=env, timeout=15,
     )

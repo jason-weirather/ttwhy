@@ -47,3 +47,14 @@ def test_default_pdf_engine_is_importable() -> None:
     from pypdfium2 import PdfDocument
 
     assert callable(PdfDocument)
+
+
+def test_distribution_import_and_command_share_twhy_name() -> None:
+    project = tomllib.loads(PROJECT.read_text(encoding="utf-8"))["project"]
+    assert project["name"] == "twhy"
+    assert project["scripts"] == {"twhy": "twhy.cli:main"}
+    assert project["urls"]["Repository"] == "https://github.com/jason-weirather/twhy"
+    root = PROJECT.parent / "src"
+    assert (root / "twhy" / "__init__.py").is_file()
+    assert (root / "twhy" / "py.typed").is_file()
+    assert [p.name for p in root.iterdir() if (p / "__init__.py").is_file()] == ["twhy"]

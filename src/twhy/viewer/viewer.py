@@ -193,7 +193,7 @@ class Viewer:
         if self.application is not None:
             raise RuntimeError("Create a new Viewer for each terminal session")
         self._wake = asyncio.Event()
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ttwhy-render")
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="twhy-render")
         self.application = self._build_application(input, output)
         if self.navigation is not None:
             self.navigation.start(self)
@@ -751,7 +751,7 @@ class Viewer:
 
     def _title(self) -> str:
         info = self.session.info
-        return (f" ttwhy | {safe_label(info.name)} "
+        return (f" twhy | {safe_label(info.name)} "
                 f"| {'RGB' if info.is_rgb else str(len(info.channels)) + ' channels'}")
 
     def _status(self) -> str:

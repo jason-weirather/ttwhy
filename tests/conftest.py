@@ -24,7 +24,7 @@ def write_pyramid(path: Path, data: np.ndarray, *, rgb: bool = False, levels: in
     options.update({"tile": (16, 16)} if tiled else {"rowsperstrip": 7})
     arrays = [data]
     for _ in range(levels - 1):
-        # Stored pyramid samples are deliberately independent of ttwhy's resampler.
+        # Stored pyramid samples are deliberately independent of twhy's resampler.
         last = arrays[-1]
         arrays.append(last[::2, ::2, :] if rgb else last[..., ::2, ::2])
     with tifffile.TiffWriter(path, ome=True, byteorder=byteorder) as writer:

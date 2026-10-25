@@ -9,10 +9,10 @@ import tifffile
 from click.testing import CliRunner
 from PIL import Image as PILImage
 
-from ttwhy import TextRenderer, ViewSession, open_image
-from ttwhy.cli import main
-from ttwhy.image_document import ImageDocument
-from ttwhy.image_input import image_kind
+from twhy import TextRenderer, ViewSession, open_image
+from twhy.cli import main
+from twhy.image_document import ImageDocument
+from twhy.image_input import image_kind
 
 
 def synthetic_svs(path):
@@ -86,7 +86,7 @@ def test_svs_tiff_magic_selects_aperio_not_ome_or_pillow(tmp_path, monkeypatch, 
     def no_eager_decode(*args, **kwargs):
         raise AssertionError("A TIFF must not be eagerly decoded as an ordinary raster")
 
-    monkeypatch.setattr("ttwhy.image_input.image_pyramid", no_eager_decode)
+    monkeypatch.setattr("twhy.image_input.image_pyramid", no_eager_decode)
     monkeypatch.setattr(PILImage, "open", no_eager_decode)
     with open_image(path, series=2) as image:
         assert image is sentinel
@@ -113,7 +113,7 @@ def test_real_svs_regional_pyramid_and_rgb_semantics(tmp_path, monkeypatch):
     def no_eager_decode(*args, **kwargs):
         raise AssertionError("Do not build a RAM pyramid or use Pillow for an SVS")
 
-    monkeypatch.setattr("ttwhy.image_input.image_pyramid", no_eager_decode)
+    monkeypatch.setattr("twhy.image_input.image_pyramid", no_eager_decode)
     monkeypatch.setattr(PILImage, "open", no_eager_decode)
     monkeypatch.setattr(tifffile.TiffPage, "asarray", no_eager_decode)
     with open_image(path) as image, ViewSession(image, max_read_pixels=10_000) as session:
