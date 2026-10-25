@@ -27,9 +27,9 @@ These are short, automatically looping recordings of `twhy` itself. Click any cl
 <table>
 <tr>
 <td width="50%" valign="top">
-<strong>Whole-slide H&amp;E-style imagery</strong><br>
-<a href="https://github.com/jason-weirather/twhy/blob/main/docs/media/he.gif"><img src="https://raw.githubusercontent.com/jason-weirather/twhy/main/docs/media/he.gif" width="440" alt="twhy zooming from a tissue overview to individual nuclei in a pseudo-H&E slide"></a><br>
-<small>Zoom from tissue-scale context into individual nuclei.</small>
+<strong>Whole-slide H&amp;E SVS</strong><br>
+<a href="https://github.com/jason-weirather/twhy/blob/main/docs/media/he.gif"><img src="https://raw.githubusercontent.com/jason-weirather/twhy/main/docs/media/he.gif" width="440" alt="twhy zooming from an SVS whole-slide tissue overview to individual nuclei in a real H&E image"></a><br>
+<small>Zoom from whole-slide tissue context into individual nuclei.</small>
 </td>
 <td width="50%" valign="top">
 <strong>An ordinary PNG. Featuring a cat.</strong><br>
@@ -187,7 +187,8 @@ Local files are the main workflow. `twhy` also supports HTTP(S) images/PDFs (bou
 
 These GIFs are edited recordings of the real `twhy` terminal viewer. Showcase sources:
 
-- **mIF and pseudo-H&E:** Tan, Y. & Kempchen, T. (2024), [*SPACEc demo dataset*](https://doi.org/10.5061/dryad.brv15dvj1), Dryad. The pseudo-H&E is computationally derived, not a conventional H&E stain.
+- **mIF:** Tan, Y. & Kempchen, T. (2024), [*SPACEc demo dataset*](https://doi.org/10.5061/dryad.brv15dvj1), Dryad.
+- **H&E whole-slide demo:** `CMU-1.svs`, [OpenSlide test data](https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/), Carnegie Mellon University, CC0 1.0.
 - **PDF:** Vaswani, A. et al. (2017), [*Attention Is All You Need*](https://arxiv.org/abs/1706.03762), NeurIPS.
 - **Cat:** Illustration generated with ChatGPT (OpenAI).
 
