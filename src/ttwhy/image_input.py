@@ -114,7 +114,7 @@ def _raster_pixels(path: Path, frame: int, background: tuple[int, int, int]) -> 
     except UnidentifiedImageError as error:
         raise ValueError(
             "Unsupported or unrecognized image. Supported: OME-TIFF, PNG, JPEG, WebP, "
-            "BMP, GIF, ICO, PPM/PGM/PBM, TGA, and PDF with ttwhy-viewer[pdf]. "
+            "BMP, GIF, ICO, PPM/PGM/PBM, TGA, and PDF. "
             "SVG, EPS/PS, HEIC/AVIF and raw camera formats are not enabled."
         ) from error
     except Image.DecompressionBombError as error:
@@ -128,9 +128,8 @@ def _pdf_pixels(path: Path, page: int, dpi: float,
             import pypdfium2 as pdfium
         except ImportError as error:
             raise RuntimeError(
-                "PDF viewing requires the optional PDF renderer: "
-                'python -m pip install "ttwhy-viewer[pdf]" '
-                '(or python -m pip install -e ".[pdf]" in a checkout)'
+                "PDF viewing requires pypdfium2, a standard ttwhy-viewer dependency. "
+                "Reinstall ttwhy-viewer with dependencies enabled."
             ) from error
         with pdfium.PdfDocument(path) as document:
             document.init_forms()

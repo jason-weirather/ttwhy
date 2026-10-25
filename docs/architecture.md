@@ -143,8 +143,9 @@ registry. TIFF and PDF signatures select their paths; within TIFF, `.svs`
 retain the OME reader. No fallback on decoder failure is attempted. the remaining path uses
 Pillow with a fixed raster-format allowlist. No decoder exception triggers a
 fallback, and formats such as EPS cannot invoke converter subprocesses. The
-Pillow dependency is lazy-imported, while PDFium is an optional `pdf` extra.
-Even `ttwhy.open_image` remains importable without loading those decoders.
+Pillow and PDFium are both standard installation dependencies, but are
+lazy-imported only for the relevant formats. Even `ttwhy.open_image` remains
+importable without loading those decoders.
 
 One selected raster frame is loaded, orientation-corrected, and composited over
 a chosen opaque matte before reduction. Common display modes become RGB8;

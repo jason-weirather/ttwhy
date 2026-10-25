@@ -358,8 +358,10 @@ TextRenderer(color=False).render([[0.0, 1.0]])
     assert result.returncode == 0, result.stderr
 
 
-def test_pdf_missing_extra_is_actionable_but_rasters_still_work(raster, tmp_path, monkeypatch):
-    path = write_pdf(tmp_path / "optional.pdf")
+def test_pdf_missing_required_dependency_is_actionable_but_rasters_still_work(
+    raster, tmp_path, monkeypatch,
+):
+    path = write_pdf(tmp_path / "document.pdf")
     original = builtins.__import__
 
     def without_pdf(name, *args, **kwargs):
@@ -371,7 +373,7 @@ def test_pdf_missing_extra_is_actionable_but_rasters_still_work(raster, tmp_path
     with open_image(raster[0]) as image:
         assert image.is_open
     result = CliRunner().invoke(main, [str(path), "--snapshot"])
-    assert result.exit_code != 0 and 'pip install "ttwhy-viewer[pdf]"' in result.output
+    assert result.exit_code != 0 and "standard ttwhy-viewer dependency" in result.output
 
 
 @pytest.mark.parametrize("dpi", [72, 144, 300])

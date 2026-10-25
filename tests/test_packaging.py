@@ -1,4 +1,4 @@
-"""Protect the NumPy compatibility range for CLI installs in scientific environments."""
+"""Protect NumPy compatibility and standard PDF support for CLI installations."""
 
 from pathlib import Path
 import tomllib
@@ -27,3 +27,23 @@ def test_numpy_range_accepts_common_scientific_environments(version: str) -> Non
 @pytest.mark.parametrize("version", ["1.26.3", "3.0.0"])
 def test_numpy_range_respects_backend_floor_and_major_cap(version: str) -> None:
     assert version not in numpy_requirement().specifier
+
+
+def test_pdfium_is_required_in_plain_install_and_s3_stays_optional() -> None:
+    project = tomllib.loads(PROJECT.read_text(encoding="utf-8"))["project"]
+    runtime = [Requirement(item) for item in project["dependencies"]]
+    pdfium = [item for item in runtime if item.name.lower() == "pypdfium2"]
+    assert len(pdfium) == 1
+    assert "4.30" in pdfium[0].specifier
+    assert "5.8.0" in pdfium[0].specifier
+    assert "6.0.0" not in pdfium[0].specifier
+    extras = project["optional-dependencies"]
+    assert "pdf" not in extras
+    assert "s3" in extras
+
+
+def test_default_pdf_engine_is_importable() -> None:
+    # PDF support is a normal runtime dependency, not an optional test lane.
+    from pypdfium2 import PdfDocument
+
+    assert callable(PdfDocument)

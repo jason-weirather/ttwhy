@@ -987,3 +987,22 @@ monochrome m cycles and skip-block invariants, `t` inside M, temporary b
 round-trips, custom ramps, startup `NO_COLOR`, and actual prompt_toolkit key
 input. Native macOS/Windows terminals and live SSH/tmux transports were not
 exercised in this pass.
+
+
+## PDF available in the standard install (October 25, 2026)
+
+This packaging-only update targets the supplied `08f65f2` repository snapshot.
+`pypdfium2>=4.30,<6` moves from the opt-in `[pdf]` extra into core dependencies,
+and `[pdf]` is removed. S3 remains opt-in under `[s3]`. The standard install
+`python -m pip install ttwhy-viewer` now includes PDF support. CLI-only users
+can install with `pipx install ttwhy-viewer` or `uv tool install ttwhy-viewer`.
+
+PDFium remains lazy-imported when PDF content is opened. Image rendering, page
+navigation, memory limits, PDF worker management, source decoding, Python minimum
+and NumPy compatibility requirements are unchanged. A damaged or `--no-deps`
+installation without PDFium now reports that a required dependency is missing,
+rather than incorrectly directing users to install an optional extra.
+
+The earlier validation sections record historical package configurations and
+commands from when PDF was optional; current installation guidance is in the
+README and `pyproject.toml`.

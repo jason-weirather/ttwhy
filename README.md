@@ -23,8 +23,8 @@ and Python import remain **`ttwhy`**. Do not install the unrelated `ttwhy` PyPI
 project. This release requires `omeify>=0.22.1` for OME-Zarr reading and geometry.
 
 ```bash
-python -m pip install 'ttwhy-viewer[pdf]'         # ordinary install with PDF viewing
-python -m pip install 'ttwhy-viewer[pdf,s3]'      # additionally enable native S3 reads
+python -m pip install ttwhy-viewer          # all local formats, including PDF
+python -m pip install 'ttwhy-viewer[s3]'   # optionally enable native S3 reads
 
 ttwhy --version
 ttwhy photograph.png
@@ -35,9 +35,9 @@ For a **CLI-only installation**, `pipx` or `uv tool` is a good fit: either gives
 packages in an existing analysis environment (once the distribution is published):
 
 ```bash
-pipx install 'ttwhy-viewer[pdf]'
+pipx install ttwhy-viewer
 # Or, if you use uv:
-uv tool install 'ttwhy-viewer[pdf]'
+uv tool install ttwhy-viewer
 ```
 
 When installing `ttwhy` into a shared Python environment, its NumPy requirement
@@ -51,7 +51,7 @@ From this source checkout:
 ```bash
 mamba env create -f environment.yml
 mamba activate ttwhy_env
-python -m pip install -e '.[dev,pdf,s3]'
+python -m pip install -e '.[dev]'
 python -m pip check
 ```
 
@@ -59,17 +59,18 @@ To install the **CLI directly from this checkout** without touching the active
 analysis environment, use either isolated tool installer here:
 
 ```bash
-pipx install --editable '.[pdf]'
+pipx install --editable .
 # Or, if you use uv:
-uv tool install --editable '.[pdf]'
+uv tool install --editable .
 ```
 
 Editable installs refer to this checkout, so keep it in place.
 
-Pillow supplies common image codecs; PDF is an optional pypdfium2 extra. OME-Zarr
-is handled by Omeify's normal Zarr/fsspec dependencies. S3 access uses an
-**optional** s3fs dependency and the standard AWS credential chain; access keys
-never belong in image URLs. No graphics server or GPU is needed.
+Pillow supplies common image codecs and pypdfium2 supplies PDF support in every
+standard install. Both decoders are imported only when needed. OME-Zarr is handled
+by Omeify's normal Zarr/fsspec dependencies. S3 access remains an **optional**
+s3fs dependency and uses the standard AWS credential chain; access keys never
+belong in image URLs. No graphics server or GPU is needed.
 
 ## OME-Zarr, remote images, SVS, and PDF pages
 
@@ -161,7 +162,7 @@ capable terminals and simple text otherwise. There is no second viewer.
 | GIF, APNG, animated WebP | Frame 0 by default, or select `--frame N`; no animation playback. |
 | ICO | View the decoder's default icon representation. |
 | PPM, PGM, PBM | Ordinary portable raster formats through Pillow. |
-| PDF, with `ttwhy-viewer[pdf]` | Navigate pages; quick RGB preview followed by sharper, RAM-only pyramids. |
+| PDF (standard install) | Navigate pages; quick RGB preview followed by sharper, RAM-only pyramids. |
 
 An SVS is one logical RGB channel, not three independent stain channels.
 Omeify reads Aperio `MPP` calibration when available and exposes stored reduced
@@ -310,8 +311,8 @@ also explicitly selects screen text. No polygon-filtered PDF text extraction or
 OCR is implemented. For single-rectangle embedded extraction, ttwhy maps the
 selected cell edges through the frozen viewport to the PDF page using PDFium's
 own coordinate transform, including page rotation and CropBox offsets. The
-current DPI does not limit text extraction. This uses the already-optional PDF
-extra, with native handles serialized under the existing PDF lock and no bitmap
+current DPI does not limit text extraction. This uses the standard PDFium
+dependency, with native handles serialized under the existing PDF lock and no bitmap
 allocation. Text order, spacing, ligatures, and Unicode mappings follow the PDF
 text layer/PDFium; this is not paragraph reconstruction or table extraction.
 Invisible/OCR text layers can differ from what the page appears to show. This
@@ -1102,7 +1103,7 @@ python examples/make_demo.py --output-directory /tmp/ttwhy-demo
 ttwhy /tmp/ttwhy-demo/synthetic-rgb.ome.tif
 ttwhy /tmp/ttwhy-demo/synthetic-mif.ome.tif --channel 0 --channel 2
 
-python -m pip install -e '.[dev,pdf]'       # include optional PDF integration tests
+python -m pip install -e '.[dev]'           # includes PDF integration tests
 python -m pytest --cov=ttwhy --cov-report=term-missing
 ruff check .
 python -m build
