@@ -4,6 +4,17 @@
 
 `ttwhy` is a zoomable, full-screen image viewer made of *actual terminal characters*. Open an OME-TIFF, SVS, or OME-Zarr slide, explore multichannel fluorescence, inspect a PNG, or page through a PDF. No browser, image server, X11, graphics protocol, or GPU required.
 
+I had a use case for this on a remote cluster with thousands of images. Sometimes
+I just needed the tissue's shape, a rough count of regions of interest, or to tell
+a big chunk of tissue from a few tiny core needle biopsies. An ASCII-art
+representation of a preview from the image pyramid seemed like it would do the job.
+
+Then working in tmux, switching the active area of the terminal with either the
+mouse or keyboard, got me wondering... just how far can we push a text-based image
+viewer? And thus began `ttwhy`. I've been having a little fun with AI slop along
+the way, and now it opens PDFs and lets me draw polygons on pathology images.
+It's ridiculous, but I'm actually going to use it.
+
 <p align="center">
   <a href="https://github.com/jason-weirather/ttwhy/blob/main/docs/media/pathology.gif"><img src="https://raw.githubusercontent.com/jason-weirather/ttwhy/main/docs/media/pathology.gif" width="900" alt="Real recording of ttwhy zooming through multiplex immunofluorescence and revealing CD8 signal in cyan on blue DAPI nuclei"></a>
 </p>
@@ -99,6 +110,41 @@ The initial view fits the image. Wheel zoom is anchored to the pointer; pan with
 | Select region | `s` rectangle; `v` polygon |
 | Export a selection | `y/Y` text, `i/I` PNG, `t/T` ANSI, `j/J` GeoJSON (copy/save) |
 | Help or quit | `?` / `q` |
+
+## From terminal annotations to full-resolution ROIs
+
+The useful part of the joke: draw regions in `ttwhy`, save their coordinates as
+GeoJSON, and let [Omeify](https://github.com/jason-weirather/omeify) extract them
+from the original image. This example uses a calibrated OME-TIFF, series 0.
+You also need the `omeify` command on your PATH; with isolated tool installs,
+install it separately using `uv tool install omeify`.
+
+```bash
+# Open the source and choose where to save the annotations.
+ttwhy slide.ome.tif --series 0 --output-geojson-clip regions.geojson
+```
+
+Zoom to the view you need, then press **`s`** for a rectangle or **`v`** for a
+polygon and draw. Close a polygon with **Enter**; **`a`** adds another region in
+the same view. Press **Shift+J** to save all the regions before quitting.
+
+```bash
+# Export one full-resolution image per region, with lossless compression.
+omeify crop slide.ome.tif --series 0 \
+  --geojson regions.geojson -o regions.ome.tif \
+  --shatter by_index --compression Deflate --no-overwrite
+```
+
+This writes `regions-01.ome.tif`, `regions-02.ome.tif`, and so on, retaining all
+channels from the selected series. Omit `--shatter by_index` to put the regions
+into separate image series in one OME-TIFF instead.
+
+**Full-resolution pixels, not a screenshot:** Omeify reads the original image,
+not the terminal preview. Polygon crops use their **bounding rectangles**, not
+polygon masks; keep the GeoJSON for the outlines. Use the same source image,
+series, and orientation in both steps. Annotation placement follows the terminal
+grid, so zoom in before drawing for finer boundaries.
+[More crop options](https://github.com/jason-weirather/omeify/blob/main/docs/regions.md).
 
 ## Supported files
 
