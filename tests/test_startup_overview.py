@@ -252,14 +252,19 @@ def test_snapshot_full_slide_from_quick_cache_and_sparse_fallback(mif):
     completed = CliRunner().invoke(main, base)
     assert completed.exit_code == 0, completed.output
     assert "Cached full-coverage overview" in completed.output
-    assert len(completed.stdout.splitlines()) == 14
+    assert len(completed.stdout.splitlines()) == 13
+    assert all(len(line) == 31 for line in completed.stdout.splitlines())
+    assert completed.stdout.endswith("\n")
     sampled = CliRunner().invoke(main, [*base, "--startup-overview-seconds", "0"])
     assert sampled.exit_code == 0, sampled.output
     assert "Sampled overview" in sampled.output
-    assert len(sampled.stdout.splitlines()) == 14
+    assert len(sampled.stdout.splitlines()) == 13
+    assert all(len(line) == 31 for line in sampled.stdout.splitlines())
+    assert sampled.stdout.endswith("\n")
     disabled = CliRunner().invoke(main, [*base, "--overview-cache-mib", "0"])
     assert disabled.exit_code == 0, disabled.output
     assert "Sampled overview" in disabled.output
+    assert len(disabled.stdout.splitlines()) == 13
 
 
 def test_snapshot_deadline_is_checked_between_chunks(monkeypatch, mif):

@@ -94,7 +94,11 @@ def test_explicit_region_and_whole_image_snapshot_with_tiny_budget(mif):
     result = CliRunner().invoke(main, [str(mif[0]), "--snapshot", "--max-read-pixels", "100"])
     assert result.exit_code == 0, result.output
     assert "full-coverage overview" in result.output
-    assert len(result.stdout.splitlines()) == 41
+    # The final newline terminates row 40; it is not an additional display row.
+    lines = result.stdout.splitlines()
+    assert len(lines) == 40
+    assert all(len(line) == 120 for line in lines)
+    assert result.stdout.endswith("\n")
     # A caller-selected field is never overridden by the automatic full-slide fit.
     selected = CliRunner().invoke(main, [str(mif[0]), "--snapshot", "--max-read-pixels", "100",
                                          "--region", "1", "1", "5", "5"])
