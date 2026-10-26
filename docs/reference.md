@@ -18,9 +18,9 @@ checks, not pixel measurements from the rendered text.
 
 ## Install
 
-Python **3.11+**. When published, the **PyPI distribution is `twhy`**, while the command
-and Python import remain **`twhy`**. Do not install the unrelated `twhy` PyPI
-project. This release requires `omeify>=0.22.1` for OME-Zarr reading and geometry.
+Python **3.11+**. The **PyPI distribution**, terminal command, and Python import
+are all named **`twhy`**. This release requires `omeify>=0.22.1` for OME-Zarr
+reading and geometry.
 
 ```bash
 python -m pip install twhy          # all local formats, including PDF
