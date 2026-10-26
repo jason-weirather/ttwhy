@@ -61,7 +61,8 @@ class CanvasControl(UIControl):
             self._drag = None
             x, y = event.position.x, event.position.y
             try:
-                if event.event_type == MouseEventType.MOUSE_DOWN and event.button == MouseButton.LEFT:
+                if (event.event_type == MouseEventType.MOUSE_DOWN
+                        and event.button == MouseButton.LEFT):
                     was_closed = selection.closed
                     selection.start_drag(x, y)
                     if selection.closed and not was_closed:
@@ -122,7 +123,9 @@ class ChannelControl(UIControl):
             for index in range(start, min(len(selection.areas), start + capacity)):
                 active = index == selection.active_index
                 text = f"{'>' if active else ' '}{index+1} {selection.areas[index].identity.name}"
-                lines.append([("class:panel.selected" if active else "class:panel", safe_label(text))])
+                lines.append([
+                    ("class:panel.selected" if active else "class:panel", safe_label(text))
+                ])
             return UIContent(get_line=lambda row: lines[row] if row < len(lines) else [],
                              line_count=len(lines), show_cursor=False)
         count = len(info.channels)
@@ -202,17 +205,20 @@ def navigation_fragments(viewer: "Viewer") -> list:
 
     def previous(event):
         if (viewer.editing is None and not viewer.selecting
-                and event.button == MouseButton.LEFT and event.event_type == MouseEventType.MOUSE_UP):
+                and event.button == MouseButton.LEFT
+                and event.event_type == MouseEventType.MOUSE_UP):
             viewer.step_destination(-1)
 
     def following(event):
         if (viewer.editing is None and not viewer.selecting
-                and event.button == MouseButton.LEFT and event.event_type == MouseEventType.MOUSE_UP):
+                and event.button == MouseButton.LEFT
+                and event.event_type == MouseEventType.MOUSE_UP):
             viewer.step_destination(1)
 
     def jump(event):
         if (viewer.editing is None and not viewer.selecting
-                and event.button == MouseButton.LEFT and event.event_type == MouseEventType.MOUSE_UP):
+                and event.button == MouseButton.LEFT
+                and event.event_type == MouseEventType.MOUSE_UP):
             viewer.begin_destination()
 
     return [("class:status", " [<] ", previous),

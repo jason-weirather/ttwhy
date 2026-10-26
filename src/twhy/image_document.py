@@ -60,7 +60,8 @@ class ImageDocument:
                  frame: int | None = None, pdf_max_dpi: float | None = None,
                  background=None, group: str = "", z_index: int | None = None,
                  t_index: int | None = None, s3_endpoint_url: str | None = None,
-                 s3_anonymous: bool = False, input_format: str = "auto", source_name: str | None = None) -> None:
+                 s3_anonymous: bool = False, input_format: str = "auto",
+                 source_name: str | None = None) -> None:
         self.path = str(path) if remote_scheme(path) else Path(path).resolve()
         self.kind = image_kind(self.path, input_format=input_format)
         self.group, self.z_index, self.t_index = group, z_index, t_index

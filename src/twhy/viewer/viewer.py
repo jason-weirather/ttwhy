@@ -32,7 +32,9 @@ from ..viewport import Viewport
 from .bindings import create_bindings
 from .clipping import ClipController
 from .mode_navigation import ModeNavigation
-from .controls import CanvasControl, ChannelControl, clip_fragments, navigation_fragments, safe_label
+from .controls import (
+    CanvasControl, ChannelControl, clip_fragments, navigation_fragments, safe_label,
+)
 from .rendering import FrameRequest, make_frame
 
 
@@ -324,7 +326,8 @@ class Viewer:
         await asyncio.sleep(0)
 
     def request_frame(self, *, reuse_samples: bool = False) -> None:
-        if self.selecting or self.viewport is None or not all(self.canvas_size) or self._wake is None:
+        if (self.selecting or self.viewport is None
+                or not all(self.canvas_size) or self._wake is None):
             return
         self.generation += 1
         columns, rows = self.canvas_size
@@ -408,7 +411,9 @@ class Viewer:
                 self._startup_target = full
                 self._startup_session = self.session
             else:
-                self.message = "Fit whole slide; sampled overview until a cached reduction is ready."
+                self.message = (
+                    "Fit whole slide; sampled overview until a cached reduction is ready."
+                )
         self.request_frame()
         if self._startup_target is not None:
             self._startup_generation = self.generation

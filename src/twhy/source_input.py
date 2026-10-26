@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Iterator
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlsplit
 from urllib.request import Request, urlopen
@@ -41,12 +41,16 @@ def validate_url(value: str | Path, *, zarr: bool = False) -> str:
         raise ValueError("Expected an HTTP(S) or s3:// URL")
     url = urlsplit(text)
     if not url.hostname or url.username is not None or url.password is not None or url.fragment:
-        raise ValueError("A remote URL needs a host/bucket and must not contain credentials or fragments")
+        raise ValueError(
+            "A remote URL needs a host/bucket and must not contain credentials or fragments"
+        )
     if scheme == "s3" and (url.port is not None or url.query or
                           any(part in {".", ".."} for part in unquote(url.path).split("/"))):
         raise ValueError("Use an s3://bucket/key URI without queries or traversal segments")
     if zarr and url.query:
-        raise ValueError("Zarr store roots cannot have query parameters; configure credentials separately")
+        raise ValueError(
+            "Zarr store roots cannot have query parameters; configure credentials separately"
+        )
     if scheme == "s3" and not zarr and not url.path.strip("/"):
         raise ValueError("An S3 input must identify a store or object key under its bucket")
     return text.rstrip("/") if zarr else text
@@ -108,7 +112,9 @@ def _copy_bounded(source, destination: Path, maximum: int) -> None:
                 break
             written += len(block)
             if written > maximum:
-                raise ValueError("Remote file exceeds --max-remote-mib; increase the limit explicitly")
+                raise ValueError(
+                    "Remote file exceeds --max-remote-mib; increase the limit explicitly"
+                )
             out.write(block)
     if not written:
         raise ValueError("Remote file is empty")
@@ -126,7 +132,9 @@ def _download(url: str, destination: Path, maximum: int, *, endpoint_url: str | 
         # One object stream, not a whole-bucket listing. A bounded read prevents
         # unbounded temporary disk use even when object metadata is incorrect.
         try:
-            with fsspec.open(url, "rb", **s3_options(endpoint_url, anonymous=s3_anonymous)) as stream:
+            with fsspec.open(
+                url, "rb", **s3_options(endpoint_url, anonymous=s3_anonymous)
+            ) as stream:
                 _copy_bounded(stream, destination, maximum)
         except (OSError, ValueError):
             raise
@@ -141,8 +149,11 @@ def _download(url: str, destination: Path, maximum: int, *, endpoint_url: str | 
                 raise ValueError("HTTP redirects must stay within HTTP(S)")
             advertised = response.headers.get("Content-Length")
             if advertised is not None and advertised.isdecimal() and int(advertised) > maximum:
-                raise ValueError("Remote file exceeds --max-remote-mib; increase the limit explicitly")
-            if response.headers.get("Content-Encoding", "identity").casefold() not in {"", "identity"}:
+                raise ValueError(
+                    "Remote file exceeds --max-remote-mib; increase the limit explicitly"
+                )
+            if (response.headers.get("Content-Encoding", "identity").casefold()
+                    not in {"", "identity"}):
                 raise ValueError("The server returned encoded HTTP content instead of file bytes")
             _copy_bounded(response, destination, maximum)
     except HTTPError as error:

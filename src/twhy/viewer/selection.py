@@ -226,7 +226,8 @@ class PolygonSelection:
             error = dx + dy
             x, y = x0, y0
             while True:
-                char = "+" if (x, y) in (start, end) else ("|" if abs(y1 - y0) > abs(x1 - x0) else "-")
+                char = ("+" if (x, y) in (start, end)
+                        else ("|" if abs(y1 - y0) > abs(x1 - x0) else "-"))
                 overlay[(x, y)] = char
                 if x == x1 and y == y1:
                     break
@@ -238,7 +239,7 @@ class PolygonSelection:
                     error += dx
                     y += sy
 
-        for left, right in zip(self.points, self.points[1:]):
+        for left, right in zip(self.points, self.points[1:], strict=False):
             draw_segment(left, right)
         if self.closed and len(self.points) >= 3:
             draw_segment(self.points[-1], self.points[0])

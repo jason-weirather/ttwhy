@@ -101,7 +101,9 @@ class ViewSession:
         if not image.is_open:
             raise RuntimeError("ViewSession requires an open image")
         if image.image_type == "label":
-            raise ValueError("Categorical label coloring is not supported; do not window object IDs")
+            raise ValueError(
+                "Categorical label coloring is not supported; do not window object IDs"
+            )
         if not isinstance(name, str) or not name.strip():
             raise ValueError("name must be a nonempty display label")
         if not isfinite(cache_mib) or cache_mib < 0:
@@ -382,7 +384,9 @@ class ViewSession:
                         )
                 planes.append(preview)
             values = planes[0] if self.info.is_rgb else np.stack(planes)
-            samples = ViewSamples(values, plan, self.info.is_rgb, cached_overview=cached is not None)
+            samples = ViewSamples(
+                values, plan, self.info.is_rgb, cached_overview=cached is not None
+            )
             size = samples.values.nbytes
             if size <= self._budget:
                 while self._cache and self._cache_bytes + size > self._budget:

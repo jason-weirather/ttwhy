@@ -168,7 +168,7 @@ def test_zarr_reader_routes_group_series_and_s3_options(monkeypatch):
 def test_shifted_levels_never_selected_for_viewing():
     """An off-grid nearest pyramid must not move data or overview sample positions."""
     from omeify import ImageLevel, MultichannelImage
-    from twhy import ViewSession, TextRenderer
+    from twhy import ViewSession
     from twhy.viewport import Viewport
 
     data = np.arange(32*32, dtype=np.uint16).reshape(32, 32)

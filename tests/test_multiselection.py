@@ -26,7 +26,6 @@ from twhy.selection_geometry import SelectionGeometry, union_mask
 from twhy.viewer import Viewer
 from twhy.viewer.controls import clip_fragments
 from twhy.viewer.rendering import terminal_lines
-from twhy.viewer.selection_set import SelectionSet
 
 REAL_RANDOM_NAME = annotation_identity.random_name
 
@@ -248,7 +247,8 @@ async def test_union_text_ansi_png_copy_save_and_empty_draft(fake_viewer, tmp_pa
     captured = []
     from twhy.text_clip import ClipboardDelivery
     monkeypatch.setattr("twhy.viewer.clipping.clipboard_png",
-                        lambda data, mode: captured.append(data) or ClipboardDelivery("PNG request"))
+                        lambda data, mode: (captured.append(data)
+                                            or ClipboardDelivery("PNG request")))
     out = tmp_path / "selected.png"
     clip.submit_image(path=out)
     await clip._task
@@ -287,7 +287,7 @@ def test_neutral_filenames_and_short_toolbar(fake_viewer):
         assert fake_viewer.entry.text == expected
         fake_viewer.cancel_edit()
     for width in (80, 60, 45):
-        fake_viewer.application.output.get_size = lambda: Size(30, width)
+        fake_viewer.application.output.get_size = lambda width=width: Size(30, width)
         fragments = clip_fragments(fake_viewer)
         assert len("".join(f[1] for f in fragments)) <= width
         assert {f[1] for f in fragments if len(f) == 3} >= {"y", "Y", "i", "I", "t", "T", "j", "J"}
@@ -374,7 +374,9 @@ async def test_128_channel_paging_endpoints_and_mouse_selection(tmp_path):
         await send(pipe, "\x1b[F", viewer, task)
         assert viewer.focused_channel == 127
         content = viewer.channel_control.create_content(31, viewer.canvas_size[1])
-        text = "\n".join("".join(f[1] for f in content.get_line(i)) for i in range(content.line_count))
+        text = "\n".join(
+            "".join(f[1] for f in content.get_line(i)) for i in range(content.line_count)
+        )
         assert "127" in text and "Marker-127" in text
         await send(pipe, "\r", viewer, task)
         assert viewer.selected_channels == (127,)
@@ -452,7 +454,9 @@ async def test_polygon_enter_closes_then_allows_text_copy_and_keyboard_add(rgb, 
         assert len(viewer.clipping.selection.areas) == 1
 
 
-async def test_pdf_multiple_areas_use_masked_screen_not_a_leaking_bounding_box(tmp_path, monkeypatch):
+async def test_pdf_multiple_areas_use_masked_screen_not_a_leaking_bounding_box(
+    tmp_path, monkeypatch
+):
     from test_clipping import write_text_pdf
     from test_document_navigation import browsing
     path = write_text_pdf(tmp_path / "text.pdf")

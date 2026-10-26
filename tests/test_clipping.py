@@ -123,7 +123,9 @@ def test_rectangle_geojson_uses_source_pixel_coordinates(cells):
     selection.start_drag(1, 0)
     selection.drag(4, 2, finish=True)
     feature = rectangle_feature(bounds=selection.bounds,
-                                viewport=type("Viewport", (), {"x": 100, "y": 200, "width": 60, "height": 40})(),
+                                viewport=type(
+                                    "Viewport", (), {"x": 100, "y": 200, "width": 60, "height": 40}
+                                )(),
                                 frame_shape=selection.frame.shape, raster_shape=(400, 800),
                                 name="box")
     ring = feature["geometry"]["coordinates"][0]
@@ -136,7 +138,9 @@ def test_rectangle_geojson_uses_source_pixel_coordinates(cells):
 
 def test_polygon_geojson_uses_vertex_centers():
     feature = polygon_feature(vertices=[(0, 0), (5, 0), (5, 3)],
-                              viewport=type("Viewport", (), {"x": 10, "y": 20, "width": 60, "height": 40})(),
+                              viewport=type(
+                                  "Viewport", (), {"x": 10, "y": 20, "width": 60, "height": 40}
+                              )(),
                               frame_shape=(4, 6), raster_shape=(400, 800),
                               name="poly")
     ring = feature["geometry"]["coordinates"][0]
@@ -170,7 +174,9 @@ def test_empty_and_oversized_osc52_are_not_sent_or_truncated():
 
 
 def clean_clipboard_env(monkeypatch):
-    for key in ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY", "TMUX", "STY", "DISPLAY", "WAYLAND_DISPLAY"):
+    for key in (
+        "SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY", "TMUX", "STY", "DISPLAY", "WAYLAND_DISPLAY"
+    ):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
 
@@ -334,7 +340,9 @@ def write_text_pdf(path, *, rotation=0, cropped=False):
                         f"{crop} /Rotate {rotation} /Resources << /Font << /F1 7 0 R >> >> "
                         f"/Contents {4+index*2} 0 R >>").encode())
         objects.append(f"<< /Length {len(content)} >>\nstream\n".encode()+content+b"\nendstream")
-    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+    objects.append(
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+    )
     data = bytearray(b"%PDF-1.4\n")
     offsets = [0]
     for index, obj in enumerate(objects, 1):
@@ -344,7 +352,9 @@ def write_text_pdf(path, *, rotation=0, cropped=False):
     data.extend(f"xref\n0 {len(offsets)}\n0000000000 65535 f \n".encode())
     for offset in offsets[1:]:
         data.extend(f"{offset:010d} 00000 n \n".encode())
-    data.extend(f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode())
+    data.extend(
+        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    )
     path.write_bytes(data)
     return path
 
@@ -352,19 +362,23 @@ def write_text_pdf(path, *, rotation=0, cropped=False):
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
 @pytest.mark.parametrize("cropped", [False, True])
 @pytest.mark.parametrize("dpi", [144, 300, 600])
-def test_native_pdf_text_rectangles_rotation_crop_and_fractional_extents(tmp_path, rotation, cropped, dpi):
+def test_native_pdf_text_rectangles_rotation_crop_and_fractional_extents(
+    tmp_path, rotation, cropped, dpi
+):
     from twhy.image_input import pdf_raster_shape
     pytest.importorskip("pypdfium2")
     path = write_text_pdf(tmp_path / "text.pdf", rotation=rotation, cropped=cropped)
     height, width = pdf_raster_shape(path, 1, dpi)
-    l, b, r, t = (35, 45, 245.2, 195.1) if cropped else (20, 30, 260.4, 210.2)
+    left, bottom, right, top = (
+        (35, 45, 245.2, 195.1) if cropped else (20, 30, 260.4, 210.2)
+    )
     # Independent analytic oracle for the four intrinsic quarter rotations.
     def device(x, y):
-        u, v = (x-l)/(r-l), (t-y)/(t-b)
+        u, v = (x - left) / (right - left), (top - y) / (top - bottom)
         u, v = {0: (u, v), 90: (1-v, u), 180: (1-u, 1-v), 270: (v, 1-u)}[rotation]
         return u*width, v*height
     corners = [device(x, y) for x in (45, 155) for y in (155, 178)]
-    xs, ys = zip(*corners)
+    xs, ys = zip(*corners, strict=True)
     bounds = min(xs), min(ys), max(xs), max(ys)
     before = set(tmp_path.iterdir())
     assert extract_pdf_text(path, 1, bounds=bounds, raster_shape=(height, width)) == "ALPHA one"
@@ -465,7 +479,9 @@ async def test_clickable_selection_buttons_require_real_click_not_drag_release(r
         selection.start_drag(1, 1)
         # Releasing a canvas drag onto Copy is not an explicit copy action.
         fragments = clip_fragments(viewer)
-        next(f[2] for f in fragments if len(f) == 3 and f[1] == "y")(MouseEvent(Point(0, 0), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset()))
+        next(f[2] for f in fragments if len(f) == 3 and f[1] == "y")(
+            MouseEvent(Point(0, 0), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset())
+        )
         assert not selection.dragging and viewer.editing is None
         await send(pipe, "s", viewer, task)
         assert not viewer.selecting
@@ -634,7 +650,9 @@ async def test_saving_succeeds_even_if_clipboard_request_is_too_large(rgb, tmp_p
         assert viewer.selecting
 
 
-async def test_clip_worker_does_not_block_selection_and_coalesces_requests(rgb, tmp_path, monkeypatch):
+async def test_clip_worker_does_not_block_selection_and_coalesces_requests(
+    rgb, tmp_path, monkeypatch
+):
     import threading
     import twhy.viewer.clipping as module
     entered, release = threading.Event(), threading.Event()

@@ -18,7 +18,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .image_pyramid import image_pyramid
-from .source_input import DEFAULT_MAX_REMOTE_MIB, is_zarr_input, remote_scheme, resolve_input, s3_options
+from .source_input import (
+    DEFAULT_MAX_REMOTE_MIB, is_zarr_input, remote_scheme, resolve_input, s3_options,
+)
 
 if TYPE_CHECKING:
     from omeify import Image
@@ -33,7 +35,9 @@ TIFF_HEADERS = (b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")
 PDF_LOCK = RLock()
 
 
-def image_kind(path: str | Path, *, input_format: str = "auto") -> Literal["tiff", "pdf", "raster", "zarr"]:
+def image_kind(
+    path: str | Path, *, input_format: str = "auto"
+) -> Literal["tiff", "pdf", "raster", "zarr"]:
     """Select ingress from content, not a filename extension or decoder failure."""
     if is_zarr_input(path, input_format=input_format):
         return "zarr"
@@ -226,9 +230,12 @@ def _open_resolved_image(
         raise ValueError("--group, --z-index and --t-index only apply to OME-Zarr")
     if kind == "zarr":
         if page is not None or frame is not None or pdf_dpi is not None or background is not None:
-            raise ValueError("OME-Zarr uses --series/--group/--z-index/--t-index, not PDF/raster options")
+            raise ValueError(
+                "OME-Zarr uses --series/--group/--z-index/--t-index, not PDF/raster options"
+            )
         from omeify import OMEZarrReader
-        options = s3_options(s3_endpoint_url, anonymous=s3_anonymous) if remote_scheme(path) == "s3" else None
+        options = (s3_options(s3_endpoint_url, anonymous=s3_anonymous)
+                   if remote_scheme(path) == "s3" else None)
         with OMEZarrReader(path, series=series, group=group, z=z_index, t=t_index,
                            storage_options=options) as image:
             yield image

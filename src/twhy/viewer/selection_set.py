@@ -105,7 +105,9 @@ class SelectionSet:
             return
         self.active.shape.geometry()  # Validate without losing the current area.
         if len(self.areas) >= self.MAX_AREAS:
-            raise ValueError("Selection limit is 256 areas; remove an area or finish this selection")
+            raise ValueError(
+                "Selection limit is 256 areas; remove an area or finish this selection"
+            )
         area = self._new_area(kind)
         area.shape.cursor = self.cursor
         self.areas.append(area)

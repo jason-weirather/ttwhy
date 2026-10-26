@@ -117,7 +117,8 @@ def _write_text(path: Path, text: str, *, overwrite: bool) -> None:
 @click.option("--output-path", "-o", type=click.Path(dir_okay=False, path_type=Path),
               help="Snapshot destination; omitted means stdout. Requires --snapshot.")
 @click.option("--output-text-clip", type=click.Path(dir_okay=False, path_type=Path),
-              help="Interactive Copy/Save destination for the latest text clip; no file until used.")
+              help=("Interactive Copy/Save destination for the latest text clip; "
+                    "no file until used."))
 @click.option("--output-ansi-clip", type=click.Path(dir_okay=False, path_type=Path),
               help="Interactive ANSI artwork clip destination for terminals.")
 @click.option("--output-png-clip", type=click.Path(dir_okay=False, path_type=Path),
@@ -199,7 +200,9 @@ def main(
                 if no_overwrite and output_path.exists():
                     raise FileExistsError(f"Snapshot destination already exists: {output_path}")
                 if not output_path.parent.is_dir():
-                    raise FileNotFoundError(f"Output directory does not exist: {output_path.parent}")
+                    raise FileNotFoundError(
+                        f"Output directory does not exist: {output_path.parent}"
+                    )
             depth = None if snapshot else available_color_depth()
             use_color = (not snapshot or ansi) if color is None else color
             # NO_COLOR and advertised one-bit terminals are genuinely monochrome,
@@ -251,7 +254,9 @@ def main(
                 ))
                 return
             if kind != "pdf" and pdf_max_dpi is not None:
-                raise ValueError("--pdf-max-dpi applies only to PDF; TIFF/raster options do not apply")
+                raise ValueError(
+                    "--pdf-max-dpi applies only to PDF; TIFF/raster options do not apply"
+                )
             with (
                 open_image(path, series=series, page=page, frame=frame_index,
                            pdf_dpi=dpi if kind == "pdf" else None, background=matte,
@@ -276,7 +281,8 @@ def main(
                                          overrides=channel_colors)
                 renderer = TextRenderer(
                     mode=mode, color=use_color,
-                    invert=session.info.is_rgb if invert is None else invert, cell_aspect=cell_aspect,
+                    invert=session.info.is_rgb if invert is None else invert,
+                    cell_aspect=cell_aspect,
                 )
                 whole_snapshot = viewport is None
                 if whole_snapshot:
@@ -291,8 +297,10 @@ def main(
                 plan = session.plan(viewport, rows=sample_rows, columns=sample_columns,
                                     channels=selected, allow_sampled_overview=whole_snapshot)
                 if plan.level.approximate:
-                    click.echo("Pyramid scale unknown: using approximate extent-fit display mapping.",
-                               err=True)
+                    click.echo(
+                        "Pyramid scale unknown: using approximate extent-fit display mapping.",
+                        err=True,
+                    )
                 samples = session.sample(plan)
                 if samples.plan.sampled_overview is not None:
                     click.echo(("Cached full-coverage overview: native coarse pixels were reduced "

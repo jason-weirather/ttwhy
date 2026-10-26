@@ -34,11 +34,13 @@ def test_file_and_array_share_the_render_path(request, fixture_name):
             view, limited = file_view.fit(columns=25, rows=11, renderer=renderer)
             assert not limited
             plans = [s.plan(view, columns=25, rows=11) for s in (file_view, array_view)]
-            samples = [s.sample(plan) for s, plan in zip((file_view, array_view), plans)]
+            samples = [
+                s.sample(plan) for s, plan in zip((file_view, array_view), plans, strict=True)
+            ]
             np.testing.assert_array_equal(samples[0].values, samples[1].values)
             frames = [s.render(v, styles=s.prepare_styles(v), renderer=renderer,
                                columns=25, rows=11)
-                      for s, v in zip((file_view, array_view), samples)]
+                      for s, v in zip((file_view, array_view), samples, strict=True)]
             assert frames[0].to_text(ansi=True) == frames[1].to_text(ansi=True)
             assert all(not p.level.approximate for p in plans)
         assert file_image.is_open

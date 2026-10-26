@@ -402,7 +402,9 @@ async def test_ordinary_image_and_pdf_use_same_zoom_pan_and_window_controls(tmp_
         write_pdf(path)
     else:
         y, x = np.mgrid[:600, :800]
-        PILImage.fromarray(np.stack([x % 256, y % 256, (x+y) % 256], -1).astype(np.uint8)).save(path)
+        PILImage.fromarray(
+            np.stack([x % 256, y % 256, (x + y) % 256], -1).astype(np.uint8)
+        ).save(path)
     async with running(path, renderer=TextRenderer(mode="blocks")) as (viewer, pipe, _, task):
         initial = viewer.viewport
         assert viewer.samples.is_rgb and viewer.windows[0].upper == 255

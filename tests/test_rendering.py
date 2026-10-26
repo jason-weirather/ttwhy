@@ -99,8 +99,10 @@ def test_area_constant_and_rgb(shape):
 
 def test_ascii_exact_ramp_and_inversion():
     image = np.linspace(0, 1, 10)[None, :]
-    assert TextRenderer(mode="simple", color=False).render(image, columns=10, rows=1).to_text() == " .:-=+*#%@"
-    assert TextRenderer(mode="ascii", invert=True).render(image, columns=10, rows=1).to_text() == "@%#*+=-:. "
+    assert (TextRenderer(mode="simple", color=False)
+            .render(image, columns=10, rows=1).to_text()) == " .:-=+*#%@"
+    assert (TextRenderer(mode="ascii", invert=True)
+            .render(image, columns=10, rows=1).to_text()) == "@%#*+=-:. "
     result = TextRenderer(mode="simple", invert=True).render([[np.nan, 0, 1]], columns=3, rows=1)
     assert result.to_text() == " @ "
 

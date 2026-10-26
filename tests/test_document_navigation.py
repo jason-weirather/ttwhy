@@ -48,6 +48,7 @@ def write_series(path):
     with tifffile.TiffWriter(path, ome=True) as writer:
         for index, (array, axes, names) in enumerate(zip(
             arrays, ["YXS", "CYX", "YX"], [["RGB"], ["DAPI", "CD3"], ["Intensity"]],
+            strict=True,
         )):
             writer.write(array, photometric="rgb" if index == 0 else "minisblack",
                          tile=(16, 16), metadata={"axes": axes, "Name": f"Series {index}",
@@ -217,7 +218,9 @@ class GatedWorkers:
         self.closed = True
 
 
-async def test_progressive_upgrade_keeps_camera_contrast_and_never_downgrades(tmp_path, monkeypatch):
+async def test_progressive_upgrade_keeps_camera_contrast_and_never_downgrades(
+    tmp_path, monkeypatch
+):
     pytest.importorskip("pypdfium2")
     monkeypatch.setattr("twhy.viewer.navigation.PdfWorkers", GatedWorkers)
     path = write_book(tmp_path / "progressive.pdf")
@@ -256,7 +259,7 @@ async def test_neighbor_prefetch_waits_for_current_and_cached_flip_is_reused(tmp
         assert all(page == 1 for page, _ in worker.calls)
         worker.gates[1, 300].set()
         for dpi in (144, 300, 600):
-            await eventually(lambda: (2, dpi) in worker.gates, task)
+            await eventually(lambda dpi=dpi: (2, dpi) in worker.gates, task)
             worker.gates[2, dpi].set()
         await eventually(lambda: nav._refine_task.done(), task)
         assert nav.cache[2].dpi == 600
@@ -363,7 +366,9 @@ def write_book(path, *, count=5):
         rotation = " /Rotate 90" if i % 2 else ""
         objects.append((f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] "
                         f"/Resources << >> /Contents {4+i*2} 0 R{rotation} >>").encode())
-        objects.append(f"<< /Length {len(content)} >>\nstream\n".encode() + content + b"\nendstream")
+        objects.append(
+            f"<< /Length {len(content)} >>\nstream\n".encode() + content + b"\nendstream"
+        )
     data = bytearray(b"%PDF-1.4\n")
     offsets = [0]
     for i, obj in enumerate(objects, 1):
@@ -383,7 +388,9 @@ async def test_moving_three_page_cache_releases_distant_images(tmp_path, monkeyp
     pytest.importorskip("pypdfium2")
     monkeypatch.setattr("twhy.viewer.navigation.PdfWorkers", GatedWorkers)
     path = write_book(tmp_path / "five.pdf")
-    async with browsing(path, page=3, pdf_max_dpi=144, cache_pages=3) as (nav, viewer, pipe, _, task):
+    async with browsing(
+        path, page=3, pdf_max_dpi=144, cache_pages=3
+    ) as (nav, viewer, pipe, _, task):
         await eventually(lambda: nav._workers is not None and len(nav._workers.calls) == 2, task)
         worker = nav._workers
         assert set(worker.calls) == {(2, 144), (4, 144)}
@@ -432,7 +439,9 @@ async def test_source_handoff_waits_for_inflight_frame(tmp_path, monkeypatch):
             await eventually(lambda: nav.active.index == 2 and not viewer.busy, task)
             assert old.image is None
             finite = viewer.samples.values[np.isfinite(viewer.samples.values).all(axis=-1)]
-            np.testing.assert_allclose(finite, np.broadcast_to([0, 0, 255], finite.shape), atol=1e-9)
+            np.testing.assert_allclose(
+                finite, np.broadcast_to([0, 0, 255], finite.shape), atol=1e-9
+            )
         finally:
             release.set()
 

@@ -65,7 +65,9 @@ def _clip_ring(points, height, width):
     try:
         ring = validate_polygon(points)
     except ValueError as error:
-        raise ValueError("Image-edge clipping splits this ROI; select its parts separately") from error
+        raise ValueError(
+            "Image-edge clipping splits this ROI; select its parts separately"
+        ) from error
     if signed_area(ring) < 0:
         ring = (ring[0], *reversed(ring[1:]))
     return [list(point) for point in (*ring, ring[0])]

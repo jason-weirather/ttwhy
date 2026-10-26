@@ -52,7 +52,9 @@ def clip_options(*, source_path=None, output_text_clip=None, output_ansi_clip=No
             if left.resolve() == right.resolve() or (
                 left.exists() and right.exists() and left.samefile(right)
             ):
-                raise ValueError("Text, ANSI, PNG and GeoJSON clip destinations must be different files")
+                raise ValueError(
+                    "Text, ANSI, PNG and GeoJSON clip destinations must be different files"
+                )
 
 
 @dataclass(frozen=True)
@@ -126,7 +128,9 @@ class ClipController:
         if (self._closed or viewer.editing is not None or viewer.frame is None or viewer.busy
                 or viewer.frame.shape != (viewer.canvas_size[1], viewer.canvas_size[0])
                 or viewer.displayed_generation != viewer.generation
-                or (nav is not None and (nav.pending is not None or nav.target != nav.active.index))):
+                or (nav is not None and (
+                    nav.pending is not None or nav.target != nav.active.index
+                ))):
             self.notify("Wait for the current frame before selecting.")
             return
         view = viewer.viewport
@@ -226,7 +230,8 @@ class ClipController:
                     "Arrows: resize | Tab: swap corners | a: add area")
 
     def enter(self) -> None:
-        if self.selection is not None and self.selection.kind == "polygon" and not self.selection.closed:
+        if (self.selection is not None and self.selection.kind == "polygon"
+                and not self.selection.closed):
             try:
                 self.selection.finish()
             except ValueError as error:
@@ -418,7 +423,9 @@ class ClipController:
                     rows, columns = frame_shape
                     bounds = (view.x + x0 / columns * view.width, view.y + y0 / rows * view.height,
                               view.x + x1 / columns * view.width, view.y + y1 / rows * view.height)
-                    content = extract_pdf_text(source, page, bounds=bounds, raster_shape=raster_shape)
+                    content = extract_pdf_text(
+                        source, page, bounds=bounds, raster_shape=raster_shape
+                    )
                     if not content.strip():
                         raise ValueError("No embedded PDF text in this box. No OCR was run; "
                                          "t/T exports terminal artwork instead.")
